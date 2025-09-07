@@ -5,14 +5,23 @@ const { google } = require('googleapis');
 // === Konfigurasi dari environment variables ===
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
-console.log('GOOGLE_SERVICE_ACCOUNT_KEY:', typeof GOOGLE_SERVICE_ACCOUNT_KEY, GOOGLE_SERVICE_ACCOUNT_KEY ? 'OK' : 'NOT FOUND');
-const serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT_KEY);
+const GOOGLE_SERVICE_ACCOUNT_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
 
 const REKAPAN_SHEET = 'REKAPAN QUALITY';
 const USER_SHEET = 'USER';
 
 // === Setup Google Sheets API ===
-const serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT_KEY);
+console.log('GOOGLE_SERVICE_ACCOUNT_KEY:', typeof GOOGLE_SERVICE_ACCOUNT_KEY, GOOGLE_SERVICE_ACCOUNT_KEY ? 'OK' : 'NOT FOUND');
+if (!GOOGLE_SERVICE_ACCOUNT_KEY) {
+  throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY environment variable is not set!');
+}
+let serviceAccount;
+try {
+  serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT_KEY);
+} catch (e) {
+  console.error('ERROR parsing GOOGLE_SERVICE_ACCOUNT_KEY:', e.message);
+  throw e;
+}
 const auth = new google.auth.GoogleAuth({
   credentials: serviceAccount,
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -233,4 +242,3 @@ bot.on('message', async (msg) => {
 
 
 console.log('Bot Telegram Rekapan aktif!');
-
