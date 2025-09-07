@@ -591,3 +591,58 @@ bot.on('message', async (msg) => {
           nikOnt = getValue('NIK ONT') || findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
           stbId = getValue('STB ID') || findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
           nikStb = getValue('NIK STB') || findValue([/NIK\s*STB[:\s]+(\d+)/i]);
+        }
+        return { ao, workorder, serviceNo, customerName, owner, workzone, snOnt, nikOnt, stbId, nikStb, teknisi };
+      }
+
+      const parsed = parseAktivasi(inputText, user);
+      // Validasi minimal SN ONT dan NIK ONT harus ada
+      let missing = [];
+      if (!parsed.snOnt) missing.push('SN ONT');
+      if (!parsed.nikOnt) missing.push('NIK ONT');
+      if (missing.length > 0) {
+        return sendTelegram(chatId, `❌ Data tidak lengkap. Field berikut wajib diisi: ${missing.join(', ')}`, { reply_to_message_id: messageId });
+      }
+
+      // === Cek duplikat: SN ONT dan NIK ONT sudah ada di sheet ===
+      const data = await getSheetData(REKAPAN_SHEET);
+      let isDuplicate = false;
+      for (let i = 1; i < data.length; i++) {
+        if ((data[i][7] || '').toUpperCase() === parsed.snOnt.toUpperCase() &&
+            (data[i][8] || '').toUpperCase() === parsed.nikOnt.toUpperCase()) {
+          isDuplicate = true;
+          break;
+        }
+      }
+      if (isDuplicate) {
+        return sendTelegram(chatId, '❌ Data duplikat. SN ONT dan NIK ONT sudah pernah diinput.', { reply_to_message_id: messageId });
+      }
+
+      // Susun data sesuai urutan kolom sheet
+      const now = new Date();
+      now.setHours(now.getHours() + 7); // WIB
+      const tanggal = now.toLocaleDateString('id-ID', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'Asia/Jakarta'
+      });
+      const row = [
+        tanggal,               // TANGGAL
+        parsed.ao,             // AO
+        parsed.workorder,      // WORKORDER
+        parsed.serviceNo,      // SERVICE NO
+        parsed.customerName,   // CUSTOMER NAME
+        parsed.owner,          // OWNER
+        parsed.workzone,       // WORKZONE
+        parsed.snOnt,          // SN ONT
+        parsed.nikOnt,         // NIK ONT
+        parsed.stbId,          // STB ID
+        parsed.nikStb,         // NIK STB
+        parsed.teknisi         // TEKNISI
+      ];
+      await appendSheetData(REKAPAN_SHEET, row);
+      return sendTelegram(chatId, '✅ Data berhasil disimpan ke sheet, GASPOLLL 🚀🚀!', { reply_to_message_id: messageId });
+    }
+    // ...existing code...
