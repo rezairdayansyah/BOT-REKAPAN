@@ -232,4 +232,3 @@ bot.on('message', async (msg) => {
 
 
 console.log('Bot Telegram Rekapan aktif!');
-
