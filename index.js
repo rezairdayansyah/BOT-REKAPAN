@@ -201,11 +201,10 @@ async function isAdmin(username) {
 // === Helper: Get today's date string ===
 function getTodayDateString() {
   const today = new Date();
-  today.setHours(today.getHours() + 7); // Adjust for WIB timezone
-  return today.toLocaleDateString('id-ID', { 
-    weekday: 'long', 
-    day: 'numeric', 
-    month: 'long', 
+  return today.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
     year: 'numeric',
     timeZone: 'Asia/Jakarta'
   });
@@ -699,3 +698,4 @@ console.log('Mode:', USE_WEBHOOK ? 'Webhook' : 'Polling');
 if (USE_WEBHOOK) {
   console.log('Listening on port:', PORT);
 }
+
