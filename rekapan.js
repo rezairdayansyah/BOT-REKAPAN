@@ -137,7 +137,7 @@ bot.on('message', async (msg) => {
       return sendTelegram(chatId, `NIK <b>${nik}</b> ditemukan pada <b>${count}</b> data.`);
     }
 
-    / === /aktivasi (hanya isi kolom yang Anda minta) ===
+    // === /aktivasi (hanya isi kolom yang Anda minta) ===
     if (/^\/aktivasi\b/i.test(text)) {
       const user = await getUserData(username);
       if (!user) return sendTelegram(chatId, '❌ Anda tidak terdaftar sebagai user aktif.');
@@ -229,5 +229,6 @@ bot.on('message', async (msg) => {
     return sendTelegram(chatId, '❌ Terjadi kesalahan sistem. Silakan coba lagi.');
   }
 });
+
 
 console.log('Bot Telegram Rekapan aktif!');
