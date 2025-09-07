@@ -496,9 +496,9 @@ bot.on('message', async (msg) => {
         // === BGES dan WMS parsing ===
         if (owner === 'BGES' || owner === 'WMS') {
           // AO/Workorder - ambil SC Number terakhir
-          const aoMatch = text.match(/AO\|.*?(SC\d{6,})/g);
-          if (aoMatch && aoMatch.length > 0) {
-            const lastMatch = aoMatch[aoMatch.length - 1];
+          const aoMatches = text.match(/AO\|.*?(SC\d{6,})/g);
+          if (aoMatches && aoMatches.length > 0) {
+            const lastMatch = aoMatches[aoMatches.length - 1];
             const scMatch = lastMatch.match(/SC(\d{6,})/);
             if (scMatch) {
               ao = `SC${scMatch[1]}`;
@@ -507,24 +507,24 @@ bot.on('message', async (msg) => {
           }
           
           // Service No - angka 11-12 digit
-          const serviceNoMatch = text.match(/\b\d{11,12}\b/g);
-          if (serviceNoMatch && serviceNoMatch.length > 0) {
-            serviceNo = serviceNoMatch[serviceNoMatch.length - 1];
+          const serviceNoMatches = text.match(/\b\d{11,12}\b/g);
+          if (serviceNoMatches && serviceNoMatches.length > 0) {
+            serviceNo = serviceNoMatches[serviceNoMatches.length - 1];
           }
           
           // Customer Name - setelah tanggal+jam & nomor pelanggan
-          const customerMatch = text.match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/g);
-          if (customerMatch && customerMatch.length > 0) {
-            const nameMatch = customerMatch[0].match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/);
+          const customerMatches = text.match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/g);
+          if (customerMatches && customerMatches.length > 0) {
+            const nameMatch = customerMatches[0].match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/);
             if (nameMatch && nameMatch[1]) {
               customerName = nameMatch[1].trim();
             }
           }
           
           // Workzone - teks setelah AO|
-          const workzoneMatch = text.match(/AO\|\s+([A-Z]{2,})/g);
-          if (workzoneMatch && workzoneMatch.length > 0) {
-            const lastWorkzoneMatch = workzoneMatch[workzoneMatch.length - 1];
+          const workzoneMatches = text.match(/AO\|\s+([A-Z]{2,})/g);
+          if (workzoneMatches && workzoneMatches.length > 0) {
+            const lastWorkzoneMatch = workzoneMatches[workzoneMatches.length - 1];
             const wzMatch = lastWorkzoneMatch.match(/AO\|\s+([A-Z]{2,})/);
             if (wzMatch && wzMatch[1]) {
               workzone = wzMatch[1];
@@ -592,10 +592,12 @@ bot.on('message', async (msg) => {
           stbId = getValue('STB ID') || findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
           nikStb = getValue('NIK STB') || findValue([/NIK\s*STB[:\s]+(\d+)/i]);
         }
+        
         return { ao, workorder, serviceNo, customerName, owner, workzone, snOnt, nikOnt, stbId, nikStb, teknisi };
       }
-
+      
       const parsed = parseAktivasi(inputText, user);
+      
       // Validasi minimal SN ONT dan NIK ONT harus ada
       let missing = [];
       if (!parsed.snOnt) missing.push('SN ONT');
@@ -603,12 +605,12 @@ bot.on('message', async (msg) => {
       if (missing.length > 0) {
         return sendTelegram(chatId, `❌ Data tidak lengkap. Field berikut wajib diisi: ${missing.join(', ')}`, { reply_to_message_id: messageId });
       }
-
+      
       // === Cek duplikat: SN ONT dan NIK ONT sudah ada di sheet ===
       const data = await getSheetData(REKAPAN_SHEET);
       let isDuplicate = false;
       for (let i = 1; i < data.length; i++) {
-        if ((data[i][7] || '').toUpperCase() === parsed.snOnt.toUpperCase() &&
+        if ((data[i][7] || '').toUpperCase() === parsed.snOnt.toUpperCase() && 
             (data[i][8] || '').toUpperCase() === parsed.nikOnt.toUpperCase()) {
           isDuplicate = true;
           break;
@@ -617,17 +619,10 @@ bot.on('message', async (msg) => {
       if (isDuplicate) {
         return sendTelegram(chatId, '❌ Data duplikat. SN ONT dan NIK ONT sudah pernah diinput.', { reply_to_message_id: messageId });
       }
-
+      
       // Susun data sesuai urutan kolom sheet
-      const now = new Date();
-      now.setHours(now.getHours() + 7); // WIB
-      const tanggal = now.toLocaleDateString('id-ID', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'Asia/Jakarta'
-      });
+      const tanggal = getTodayDateString();
+      
       const row = [
         tanggal,               // TANGGAL
         parsed.ao,             // AO
@@ -642,10 +637,52 @@ bot.on('message', async (msg) => {
         parsed.nikStb,         // NIK STB
         parsed.teknisi         // TEKNISI
       ];
+      
       await appendSheetData(REKAPAN_SHEET, row);
-      return sendTelegram(chatId, '✅ Data berhasil disimpan ke sheet, GASPOLLL 🚀🚀!', { reply_to_message_id: messageId });
+      
+      // Tampilkan konfirmasi dengan data yang berhasil diparse
+      let confirmMsg = '✅ Data berhasil disimpan ke sheet, GASPOLLL 🚀🚀!\n\n';
+      confirmMsg += '<b>Data yang tersimpan:</b>\n';
+      confirmMsg += `AO: ${parsed.ao || '-'}\n`;
+      confirmMsg += `Service No: ${parsed.serviceNo || '-'}\n`;
+      confirmMsg += `Customer: ${parsed.customerName || '-'}\n`;
+      confirmMsg += `Owner: ${parsed.owner || '-'}\n`;
+      confirmMsg += `Workzone: ${parsed.workzone || '-'}\n`;
+      confirmMsg += `SN ONT: ${parsed.snOnt}\n`;
+      confirmMsg += `NIK ONT: ${parsed.nikOnt}\n`;
+      confirmMsg += `Teknisi: ${parsed.teknisi}\n`;
+      
+      return sendTelegram(chatId, confirmMsg, { reply_to_message_id: messageId });
     }
-  // Akhir handler bot.on('message')
+    
+    // === /help: Command list ===
+    if (/^\/help\b/i.test(text) || /^\/start\b/i.test(text)) {
+      let helpMsg = '🤖 <b>Bot Rekapan Quality</b>\n\n';
+      helpMsg += '<b>Commands User:</b>\n';
+      helpMsg += '/aktivasi - Input data aktivasi\n';
+      helpMsg += '/cari - Lihat total aktivasi Anda\n';
+      helpMsg += '/help - Tampilkan bantuan ini\n';
+      
+      if (await isAdmin(username)) {
+        helpMsg += '\n<b>Admin Commands:</b>\n';
+        helpMsg += '/ps - Laporan harian (hari ini saja)\n';
+        helpMsg += '/allps - Ringkasan total keseluruhan\n';
+        helpMsg += '/username - Statistik berdasarkan username (contoh: /HKS_HENDRA_16951456)\n';
+        helpMsg += '/clean - Hapus data duplikat\n';
+      }
+      
+      return sendTelegram(chatId, helpMsg, { reply_to_message_id: messageId });
+    }
+    
+    // Default response for unknown commands
+    if (text.startsWith('/')) {
+      return sendTelegram(chatId, '❓ Command tidak dikenali. Ketik /help untuk melihat daftar command.', { reply_to_message_id: messageId });
+    }
+    
+  } catch (err) {
+    console.error('Error processing message:', err);
+    return sendTelegram(chatId, '❌ Terjadi kesalahan sistem. Silakan coba lagi nanti.', { reply_to_message_id: messageId });
+  }
 });
 
 // Error handling untuk uncaught exceptions
