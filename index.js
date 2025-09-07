@@ -228,18 +228,20 @@ bot.on('message', async (msg) => {
       return;
     }
     
-    // === /ps: Laporan harian detail (hanya data hari ini) ===
+    // === /ps: Laporan harian detail (hanya data hari ini dengan real-time refresh) ===
     if (/^\/ps\b/i.test(text)) {
       if (!(await isAdmin(username))) {
         return sendTelegram(chatId, '❌ Akses ditolak. Command /ps hanya untuk admin.', { reply_to_message_id: messageId });
       }
       
+      // Ambil data terbaru dari sheet
       const data = await getSheetData(REKAPAN_SHEET);
       const todayStr = getTodayDateString();
       
       let total = 0;
       let teknisiMap = {}, workzoneMap = {}, ownerMap = {};
       
+      // Filter hanya data hari ini
       for (let i = 1; i < data.length; i++) {
         const tgl = (data[i][0] || '').trim();
         if (tgl === todayStr) {
@@ -253,20 +255,29 @@ bot.on('message', async (msg) => {
         }
       }
       
-      let msg = `📊 <b>LAPORAN AKTIVASI HARIAN</b>\nTanggal: ${todayStr}\nTotal Aktivasi: ${total} SSL\n\n`;
-      msg += `METRICS:\n- Teknisi Aktif: ${Object.keys(teknisiMap).length}\n- Workzone Tercover: ${Object.keys(workzoneMap).length}\n- Owner: ${Object.keys(ownerMap).length}\n\n`;
-      msg += 'PERFORMA TEKNISI:\n';
-      Object.entries(teknisiMap).sort((a,b)=>b[1]-a[1]).forEach(([t,c],i)=>{
-        msg+=`${i+1}. ${t}: ${c} SSL\n`;
-      });
-      msg += '\nPERFORMA WORKZONE:\n';
-      Object.entries(workzoneMap).sort((a,b)=>b[1]-a[1]).forEach(([w,c],i)=>{
-        msg+=`${i+1}. ${w}: ${c} SSL\n`;
-      });
-      msg += '\nPERFORMA OWNER:\n';
-      Object.entries(ownerMap).sort((a,b)=>b[1]-a[1]).forEach(([o,c],i)=>{
-        msg+=`${i+1}. ${o}: ${c} SSL\n`;
-      });
+      let msg = `📊 <b>LAPORAN AKTIVASI HARI INI</b>\nTanggal: ${todayStr}\nTotal Aktivasi: ${total} SSL\n\n`;
+      
+      if (total === 0) {
+        msg += '⚠️ Belum ada data aktivasi untuk hari ini.\n\n';
+      } else {
+        msg += `METRICS HARI INI:\n- Teknisi Aktif: ${Object.keys(teknisiMap).length}\n- Workzone Tercover: ${Object.keys(workzoneMap).length}\n- Owner: ${Object.keys(ownerMap).length}\n\n`;
+        
+        msg += 'PERFORMA TEKNISI HARI INI:\n';
+        Object.entries(teknisiMap).sort((a,b)=>b[1]-a[1]).forEach(([t,c],i)=>{
+          msg+=`${i+1}. ${t}: ${c} SSL\n`;
+        });
+        
+        msg += '\nPERFORMA WORKZONE HARI INI:\n';
+        Object.entries(workzoneMap).sort((a,b)=>b[1]-a[1]).forEach(([w,c],i)=>{
+          msg+=`${i+1}. ${w}: ${c} SSL\n`;
+        });
+        
+        msg += '\nPERFORMA OWNER HARI INI:\n';
+        Object.entries(ownerMap).sort((a,b)=>b[1]-a[1]).forEach(([o,c],i)=>{
+          msg+=`${i+1}. ${o}: ${c} SSL\n`;
+        });
+      }
+      
       msg += `\nDATA SOURCE: REKAPAN_QUALITY\nGENERATED: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'})} WIB`;
       return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
     }
@@ -309,7 +320,7 @@ bot.on('message', async (msg) => {
       return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
     }
     
-    // === /cari: menampilkan total dari user tersebut ===
+    // === /cari: menampilkan total dari user tersebut (FIXED) ===
     if (/^\/cari\b/i.test(text)) {
       const user = await getUserData(username);
       if (!user) {
@@ -317,13 +328,14 @@ bot.on('message', async (msg) => {
       }
       
       const data = await getSheetData(REKAPAN_SHEET);
-      const userTeknisi = user[1] || username;
+      const userTeknisi = (user[1] || username).replace('@', '').toLowerCase();
       let count = 0;
       let ownerMap = {}, workzoneMap = {};
       
+      // Cari semua data dari teknisi yang sesuai
       for (let i = 1; i < data.length; i++) {
-        const teknisi = (data[i][11] || '').toLowerCase();
-        if (teknisi === userTeknisi.toLowerCase()) {
+        const teknisiData = (data[i][11] || '').replace('@', '').toLowerCase();
+        if (teknisiData === userTeknisi) {
           count++;
           const owner = (data[i][5] || '-').toUpperCase();
           const workzone = (data[i][6] || '-').toUpperCase();
@@ -332,32 +344,40 @@ bot.on('message', async (msg) => {
         }
       }
       
-      let msg = `📊 <b>STATISTIK ANDA</b>\n👤 Teknisi: ${userTeknisi}\n📈 Total Aktivasi: ${count} SSL\n\nDETAIL PER OWNER:\n`;
-      Object.entries(ownerMap).forEach(([o,c])=>{
-        msg+=`- ${o}: ${c}\n`;
-      });
-      msg += '\nDETAIL PER WORKZONE:\n';
-      Object.entries(workzoneMap).forEach(([s,c])=>{
-        msg+=`- ${s}: ${c}\n`;
-      });
+      let msg = `📊 <b>STATISTIK ANDA</b>\n👤 Teknisi: ${user[1] || username}\n📈 Total Aktivasi: ${count} SSL\n\n`;
+      
+      if (count === 0) {
+        msg += '⚠️ Belum ada data aktivasi yang tercatat untuk Anda.\n';
+      } else {
+        msg += 'DETAIL PER OWNER:\n';
+        Object.entries(ownerMap).sort((a,b)=>b[1]-a[1]).forEach(([o,c])=>{
+          msg+=`- ${o}: ${c}\n`;
+        });
+        msg += '\nDETAIL PER WORKZONE:\n';
+        Object.entries(workzoneMap).sort((a,b)=>b[1]-a[1]).forEach(([s,c])=>{
+          msg+=`- ${s}: ${c}\n`;
+        });
+      }
+      
       msg += `\nUpdated: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'})} WIB`;
       return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
     }
     
-    // === /username: menampilkan total dari username tersebut (khusus admin) ===
-    if (/^\/\w+$/.test(text) && text.startsWith('/@')) {
+    // === /@username: menampilkan total dari username tersebut (FIXED FORMAT) ===
+    if (/^\/[A-Za-z0-9_]+$/.test(text) && !text.match(/^\/cari|^\/ps|^\/allps|^\/clean|^\/help|^\/start|^\/aktivasi/i)) {
       if (!(await isAdmin(username))) {
         return sendTelegram(chatId, '❌ Akses ditolak. Command ini hanya untuk admin.', { reply_to_message_id: messageId });
       }
       
-      const targetUsername = text.substring(2); // Remove /@
+      const targetUsername = text.substring(1).toLowerCase(); // Remove / and convert to lowercase
       const data = await getSheetData(REKAPAN_SHEET);
       let count = 0;
       let ownerMap = {}, workzoneMap = {};
       
+      // Cari data berdasarkan username (dengan atau tanpa @)
       for (let i = 1; i < data.length; i++) {
-        const teknisi = (data[i][11] || '').toLowerCase().replace('@', '');
-        if (teknisi === targetUsername.toLowerCase()) {
+        const teknisi = (data[i][11] || '').replace('@', '').toLowerCase();
+        if (teknisi === targetUsername) {
           count++;
           const owner = (data[i][5] || '-').toUpperCase();
           const workzone = (data[i][6] || '-').toUpperCase();
@@ -366,14 +386,21 @@ bot.on('message', async (msg) => {
         }
       }
       
-      let msg = `📊 <b>STATISTIK TEKNISI</b>\n👤 Username: @${targetUsername}\n📈 Total Aktivasi: ${count} SSL\n\nDETAIL PER OWNER:\n`;
-      Object.entries(ownerMap).forEach(([o,c])=>{
-        msg+=`- ${o}: ${c}\n`;
-      });
-      msg += '\nDETAIL PER WORKZONE:\n';
-      Object.entries(workzoneMap).forEach(([s,c])=>{
-        msg+=`- ${s}: ${c}\n`;
-      });
+      let msg = `📊 <b>STATISTIK TEKNISI</b>\n👤 Username: ${text}\n📈 Total Aktivasi: ${count} SSL\n\n`;
+      
+      if (count === 0) {
+        msg += '⚠️ Belum ada data aktivasi yang tercatat untuk teknisi ini.\n';
+      } else {
+        msg += 'DETAIL PER OWNER:\n';
+        Object.entries(ownerMap).sort((a,b)=>b[1]-a[1]).forEach(([o,c])=>{
+          msg+=`- ${o}: ${c}\n`;
+        });
+        msg += '\nDETAIL PER WORKZONE:\n';
+        Object.entries(workzoneMap).sort((a,b)=>b[1]-a[1]).forEach(([s,c])=>{
+          msg+=`- ${s}: ${c}\n`;
+        });
+      }
+      
       msg += `\nUpdated: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'})} WIB`;
       return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
     }
@@ -415,7 +442,7 @@ bot.on('message', async (msg) => {
       return sendTelegram(chatId, `✅ Berhasil menghapus ${duplicateCount} data duplikat. Sheet telah dibersihkan.`, { reply_to_message_id: messageId });
     }
     
-    // === /aktivasi: parsing multi-format, cek duplikat, simpan ===
+    // === /aktivasi: parsing multi-format yang diperbaiki, cek duplikat, simpan ===
     if (/^\/aktivasi\b/i.test(text)) {
       const user = await getUserData(username);
       if (!user) {
@@ -427,7 +454,7 @@ bot.on('message', async (msg) => {
         return sendTelegram(chatId, 'Silakan kirim data aktivasi setelah /aktivasi.', { reply_to_message_id: messageId });
       }
       
-      // === Parsing multi-format yang diperbaiki ===
+      // === Parsing multi-format yang diperbaiki untuk BGES dan WMS ===
       function parseAktivasi(text, userRow) {
         const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
         const upper = text.toUpperCase();
@@ -437,49 +464,72 @@ bot.on('message', async (msg) => {
         // Helper untuk mencari nilai dengan berbagai pola
         function findValue(patterns) {
           for (const pattern of patterns) {
-            for (const line of lines) {
-              const match = line.match(pattern);
-              if (match && match[1]) {
-                return match[1].trim();
+            const matches = text.match(pattern);
+            if (matches) {
+              if (pattern.global) {
+                return matches[matches.length - 1]; // ambil yang terakhir
+              } else if (matches[1]) {
+                return matches[1].trim();
               }
             }
           }
           return '';
         }
         
-        // === BGES ===
-        if (upper.includes('BGES')) {
-          owner = 'BGES';
+        // Deteksi owner berdasarkan keyword
+        function detectOwner(text) {
+          const upperText = text.toUpperCase();
+          if (upperText.includes('INDIBIZ') || upperText.includes('HSI')) {
+            return 'BGES';
+          }
+          if (upperText.includes('WMS') || upperText.includes('MWS')) {
+            return 'WMS';
+          }
+          if (upperText.includes('TSEL')) {
+            return 'TSEL';
+          }
+          return '';
+        }
+        
+        owner = detectOwner(text);
+        
+        // === BGES dan WMS parsing ===
+        if (owner === 'BGES' || owner === 'WMS') {
+          // AO/Workorder - ambil SC Number terakhir
+          const aoMatch = text.match(/AO\|.*?(SC\d{6,})/g);
+          if (aoMatch && aoMatch.length > 0) {
+            const lastMatch = aoMatch[aoMatch.length - 1];
+            const scMatch = lastMatch.match(/SC(\d{6,})/);
+            if (scMatch) {
+              ao = `SC${scMatch[1]}`;
+              workorder = ao;
+            }
+          }
           
-          // AO/Workorder - mencari pola SC diikuti angka
-          ao = findValue([
-            /SC(\d+)/i,
-            /AO[:\s]+([A-Z0-9]+)/i,
-            /WORKORDER[:\s]+([A-Z0-9-]+)/i
-          ]);
-          workorder = ao; // Untuk BGES, AO dan workorder biasanya sama
+          // Service No - angka 11-12 digit
+          const serviceNoMatch = text.match(/\b\d{11,12}\b/g);
+          if (serviceNoMatch && serviceNoMatch.length > 0) {
+            serviceNo = serviceNoMatch[serviceNoMatch.length - 1];
+          }
           
-          // Service No - mencari angka panjang atau pola khusus
-          serviceNo = findValue([
-            /SERVICE\s*NO[:\s]+(\d+)/i,
-            /(\d{10,15})\s+null\s+MIA/i,
-            /(\d{10,15})/
-          ]);
+          // Customer Name - setelah tanggal+jam & nomor pelanggan
+          const customerMatch = text.match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/g);
+          if (customerMatch && customerMatch.length > 0) {
+            const nameMatch = customerMatch[0].match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/);
+            if (nameMatch && nameMatch[1]) {
+              customerName = nameMatch[1].trim();
+            }
+          }
           
-          // Customer Name - berbagai pola
-          customerName = findValue([
-            /CUSTOMER\s*NAME[:\s]+(.+)/i,
-            /null\s+\d{8}\s+([A-Z\s]+?)(?:\s+[A-Za-z]+,|\s+Tijue,|\s+\d{10,15}|\s+null)/i,
-            /(WMS\s+[A-Z\s]+)/i,
-            /(BGES\s+[A-Z\s]+)/i
-          ]);
-          
-          // Workzone
-          workzone = findValue([
-            /WORKZONE[:\s]+([A-Z0-9]+)/i,
-            /AO\|INTERNET\s+([A-Z]{3})/i,
-            /([A-Z]{3})\s*$/i
-          ]);
+          // Workzone - teks setelah AO|
+          const workzoneMatch = text.match(/AO\|\s+([A-Z]{2,})/g);
+          if (workzoneMatch && workzoneMatch.length > 0) {
+            const lastWorkzoneMatch = workzoneMatch[workzoneMatch.length - 1];
+            const wzMatch = lastWorkzoneMatch.match(/AO\|\s+([A-Z]{2,})/);
+            if (wzMatch && wzMatch[1]) {
+              workzone = wzMatch[1];
+            }
+          }
           
           // SN ONT - berbagai brand
           snOnt = findValue([
@@ -495,54 +545,8 @@ bot.on('message', async (msg) => {
           stbId = findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
           nikStb = findValue([/NIK\s*STB[:\s]+(\d+)/i]);
         }
-        // === WMS ===
-        else if (upper.includes('WMS')) {
-          owner = 'WMS';
-          
-          // AO/Workorder
-          ao = findValue([
-            /SC(\d+)/i,
-            /AO[:\s]+([A-Z0-9]+)/i,
-            /WORKORDER[:\s]+([A-Z0-9-]+)/i
-          ]);
-          workorder = ao;
-          
-          // Service No
-          serviceNo = findValue([
-            /SERVICE\s*NO[:\s]+(\d+)/i,
-            /(\d{10,15})/
-          ]);
-          
-          // Customer Name - khusus untuk WMS
-          customerName = findValue([
-            /CUSTOMER\s*NAME[:\s]+(.+)/i,
-            /(WMS\s+[A-Z\s]+)/i
-          ]);
-          
-          // Workzone
-          workzone = findValue([
-            /WORKZONE[:\s]+([A-Z0-9]+)/i,
-            /([A-Z]{3})\s*$/i
-          ]);
-          
-          // SN ONT
-          snOnt = findValue([
-            /SN\s*ONT[:\s]+([A-Z0-9]+)/i,
-            /(ZTEG[A-Z0-9]+)/i,
-            /(HWTC[A-Z0-9]+)/i,
-            /(HUAW[A-Z0-9]+)/i,
-            /(FHTT[A-Z0-9]+)/i,
-            /(FIBR[A-Z0-9]+)/i
-          ]);
-          
-          nikOnt = findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
-          stbId = findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
-          nikStb = findValue([/NIK\s*STB[:\s]+(\d+)/i]);
-        }
         // === TSEL ===
-        else if (upper.includes('TSEL')) {
-          owner = 'TSEL';
-          
+        else if (owner === 'TSEL') {
           ao = findValue([
             /AO[:\s]+([A-Z0-9]+)/i,
             /SC(\d+)/i
@@ -587,98 +591,3 @@ bot.on('message', async (msg) => {
           nikOnt = getValue('NIK ONT') || findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
           stbId = getValue('STB ID') || findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
           nikStb = getValue('NIK STB') || findValue([/NIK\s*STB[:\s]+(\d+)/i]);
-        }
-        
-        return { ao, workorder, serviceNo, customerName, owner, workzone, snOnt, nikOnt, stbId, nikStb, teknisi };
-      }
-      
-      const parsed = parseAktivasi(inputText, user);
-      
-      // Validasi minimal SN ONT dan NIK ONT harus ada
-      let missing = [];
-      if (!parsed.snOnt) missing.push('SN ONT');
-      if (!parsed.nikOnt) missing.push('NIK ONT');
-      if (missing.length > 0) {
-        return sendTelegram(chatId, `❌ Data tidak lengkap. Field berikut wajib diisi: ${missing.join(', ')}`, { reply_to_message_id: messageId });
-      }
-      
-      // === Cek duplikat: SN ONT dan NIK ONT sudah ada di sheet ===
-      const data = await getSheetData(REKAPAN_SHEET);
-      let isDuplicate = false;
-      for (let i = 1; i < data.length; i++) {
-        if ((data[i][7] || '').toUpperCase() === parsed.snOnt.toUpperCase() && 
-            (data[i][8] || '').toUpperCase() === parsed.nikOnt.toUpperCase()) {
-          isDuplicate = true;
-          break;
-        }
-      }
-      if (isDuplicate) {
-        return sendTelegram(chatId, '❌ Data duplikat. SN ONT dan NIK ONT sudah pernah diinput.', { reply_to_message_id: messageId });
-      }
-      
-      // Susun data sesuai urutan kolom sheet
-      const tanggal = getTodayDateString();
-      
-      const row = [
-        tanggal,               // TANGGAL
-        parsed.ao,             // AO
-        parsed.workorder,      // WORKORDER
-        parsed.serviceNo,      // SERVICE NO
-        parsed.customerName,   // CUSTOMER NAME
-        parsed.owner,          // OWNER
-        parsed.workzone,       // WORKZONE
-        parsed.snOnt,          // SN ONT
-        parsed.nikOnt,         // NIK ONT
-        parsed.stbId,          // STB ID
-        parsed.nikStb,         // NIK STB
-        parsed.teknisi         // TEKNISI
-      ];
-      
-      await appendSheetData(REKAPAN_SHEET, row);
-      return sendTelegram(chatId, '✅ Data berhasil disimpan ke sheet, GASPOLLL 🚀🚀!', { reply_to_message_id: messageId });
-    }
-    
-    // === /help: Command list ===
-    if (/^\/help\b/i.test(text) || /^\/start\b/i.test(text)) {
-      let helpMsg = '🤖 <b>Bot Rekapan Quality</b>\n\n';
-      helpMsg += '<b>Commands User:</b>\n';
-      helpMsg += '/aktivasi - Input data aktivasi\n';
-      helpMsg += '/cari - Lihat total aktivasi Anda\n';
-      helpMsg += '/help - Tampilkan bantuan ini\n';
-      
-      if (await isAdmin(username)) {
-        helpMsg += '\n<b>Admin Commands:</b>\n';
-        helpMsg += '/ps - Laporan harian\n';
-        helpMsg += '/allps - Ringkasan total\n';
-        helpMsg += '/@username - Statistik berdasarkan username\n';
-        helpMsg += '/clean - Hapus data duplikat\n';
-      }
-      
-      return sendTelegram(chatId, helpMsg, { reply_to_message_id: messageId });
-    }
-    
-    // Default response for unknown commands
-    if (text.startsWith('/')) {
-      return sendTelegram(chatId, '❓ Command tidak dikenali. Ketik /help untuk melihat daftar command.', { reply_to_message_id: messageId });
-    }
-    
-  } catch (err) {
-    console.error('Error processing message:', err);
-    return sendTelegram(chatId, '❌ Terjadi kesalahan sistem. Silakan coba lagi nanti.', { reply_to_message_id: messageId });
-  }
-});
-
-// Error handling untuk uncaught exceptions
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-console.log('Bot Telegram Rekapan started successfully!');
-console.log('Mode:', USE_WEBHOOK ? 'Webhook' : 'Polling');
-if (USE_WEBHOOK) {
-  console.log('Listening on port:', PORT);
-}
