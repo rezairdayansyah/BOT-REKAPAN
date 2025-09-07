@@ -654,22 +654,30 @@ bot.on('message', async (msg) => {
       return sendTelegram(chatId, confirmMsg, { reply_to_message_id: messageId });
     }
     
-    // === /help: Command list ===
+    // === /help: Command list lengkap ===
     if (/^\/help\b/i.test(text) || /^\/start\b/i.test(text)) {
       let helpMsg = '🤖 <b>Bot Rekapan Quality</b>\n\n';
-      helpMsg += '<b>Commands User:</b>\n';
-      helpMsg += '/aktivasi - Input data aktivasi\n';
-      helpMsg += '/cari - Lihat total aktivasi Anda\n';
+      helpMsg += '<b>Command User:</b>\n';
+      helpMsg += '/aktivasi <data> - Input data aktivasi\n';
+      helpMsg += '/cari - Statistik total aktivasi Anda\n';
+      helpMsg += '/statbulan - Statistik aktivasi bulan ini\n';
+      helpMsg += '/statminggu - Statistik aktivasi minggu ini\n';
       helpMsg += '/help - Tampilkan bantuan ini\n';
-      
+      helpMsg += '\n<b>Format /aktivasi (bisa BGES/WMS/TSEL/manual):</b>\n';
+      helpMsg += 'Contoh:\n';
+      helpMsg += 'OWNER : BGES\nAO : SC123456\nSERVICE NO : 9876543210\nCUSTOMER NAME : PT TEST\nWORKZONE : ZONE1\nSN ONT : ZTEGDA140D99\nNIK ONT : 12345678\n';
+      helpMsg += '\n';
       if (await isAdmin(username)) {
-        helpMsg += '\n<b>Admin Commands:</b>\n';
-        helpMsg += '/ps - Laporan harian (hari ini saja)\n';
+        helpMsg += '<b>Command Admin:</b>\n';
+        helpMsg += '/ps - Laporan harian (hari ini)\n';
         helpMsg += '/allps - Ringkasan total keseluruhan\n';
+        helpMsg += '/stat <teknisi> - Statistik teknisi\n';
+        helpMsg += '/nik <NIK> - Statistik berdasarkan NIK\n';
         helpMsg += '/username - Statistik berdasarkan username (contoh: /HKS_HENDRA_16951456)\n';
         helpMsg += '/clean - Hapus data duplikat\n';
+        helpMsg += '/export - Export data ke CSV\n';
       }
-      
+      helpMsg += '\n<b>Catatan:</b>\n- Semua data otomatis dicek duplikat.\n- Format /aktivasi fleksibel, bisa copy-paste dari sistem manapun.\n- Untuk bantuan lebih lanjut, hubungi admin.\n';
       return sendTelegram(chatId, helpMsg, { reply_to_message_id: messageId });
     }
     
@@ -698,4 +706,3 @@ console.log('Mode:', USE_WEBHOOK ? 'Webhook' : 'Polling');
 if (USE_WEBHOOK) {
   console.log('Listening on port:', PORT);
 }
-
