@@ -5,7 +5,8 @@ const { google } = require('googleapis');
 // === Konfigurasi dari environment variables ===
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
-const GOOGLE_SERVICE_ACCOUNT_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+console.log('GOOGLE_SERVICE_ACCOUNT_KEY:', typeof GOOGLE_SERVICE_ACCOUNT_KEY, GOOGLE_SERVICE_ACCOUNT_KEY ? 'OK' : 'NOT FOUND');
+const serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT_KEY);
 
 const REKAPAN_SHEET = 'REKAPAN QUALITY';
 const USER_SHEET = 'USER';
@@ -232,3 +233,4 @@ bot.on('message', async (msg) => {
 
 
 console.log('Bot Telegram Rekapan aktif!');
+
