@@ -243,61 +243,90 @@ bot.on('message', async (msg) => {
       const inputText = text.replace(/^\/aktivasi\s*/i, '').trim();
       if (!inputText) return sendTelegram(chatId, 'Silakan kirim data aktivasi setelah /aktivasi.');
 
-      // === Parsing multi-format (BGES, WMS, TSEL, default) ===
+
+      // === Parsing multi-format (TSEL, BGES, WMS, fallback label/regex) ===
       function parseAktivasi(text, username) {
         const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
         const upper = text.toUpperCase();
         let ao='', workorder='', serviceNo='', customerName='', owner='', workzone='', snOnt='', nikOnt='', stbId='', nikStb='', teknisi='';
         teknisi = user[1] || username;
-        // BGES
+
+        // Helper regex
+        function findByRegex(pattern, flags='i') {
+          const re = new RegExp(pattern, flags);
+          for (const l of lines) {
+            const m = l.match(re);
+            if (m && m[1]) return m[1].trim();
+          }
+          return '';
+        }
+
+        // === BGES ===
         if (upper.includes('BGES')) {
           owner = 'BGES';
-          ao = lines.find(l=>/SC\d+/i.test(l))?.match(/SC(\d+)/i)?.[1] || '';
-          serviceNo = lines.find(l=>/SERVICE NO/i.test(l))?.split(':')[1]?.trim() || '';
-          snOnt = lines.find(l=>/SN ONT/i.test(l))?.split(':')[1]?.trim() || '';
-          nikOnt = lines.find(l=>/NIK ONT/i.test(l))?.split(':')[1]?.trim() || '';
-          customerName = lines.find(l=>/CUSTOMER NAME/i.test(l))?.split(':')[1]?.trim() || '';
-          workzone = lines.find(l=>/WORKZONE/i.test(l))?.split(':')[1]?.trim() || '';
-        } else if (upper.includes('WMS')) {
+          ao = findByRegex('SC(\d+)') || findByRegex('AO[ :|]+([A-Z0-9]+)');
+          workorder = findByRegex('WORKORDER[ :|]+([A-Z0-9-]+)');
+          serviceNo = findByRegex('SERVICE NO[ :|]+([0-9]+)') || findByRegex('(\d{10,15})\s+null\s+MIA');
+          customerName = findByRegex('CUSTOMER NAME[ :|]+(.+)') || findByRegex('null\s+\d{8}\s+([A-Z\s]+?)(?:\s+[A-Za-z]+,|\s+Tijue,|\s+\d{10,15}|\s+null)');
+          workzone = findByRegex('WORKZONE[ :|]+([A-Z0-9]+)') || findByRegex('AO\|INTERNET\s+([A-Z]{3})');
+          snOnt = findByRegex('SN ONT[ :|]+([A-Z0-9]+)') || findByRegex('(ZTEG[A-Z0-9]+|HWTC[A-Z0-9]+|HUAW[A-Z0-9]+|FHTT[A-Z0-9]+|FIBR[A-Z0-9]+)');
+          nikOnt = findByRegex('NIK ONT[ :|]+([0-9]+)');
+          stbId = findByRegex('STB ID[ :|]+([A-Z0-9]+)');
+          nikStb = findByRegex('NIK STB[ :|]+([0-9]+)');
+        }
+        // === WMS ===
+        else if (upper.includes('WMS')) {
           owner = 'WMS';
-          ao = lines.find(l=>/AO/i.test(l))?.split(':')[1]?.trim() || '';
-          serviceNo = lines.find(l=>/SERVICE NO/i.test(l))?.split(':')[1]?.trim() || '';
-          snOnt = lines.find(l=>/SN ONT/i.test(l))?.split(':')[1]?.trim() || '';
-          nikOnt = lines.find(l=>/NIK ONT/i.test(l))?.split(':')[1]?.trim() || '';
-          customerName = lines.find(l=>/CUSTOMER NAME/i.test(l))?.split(':')[1]?.trim() || '';
-          workzone = lines.find(l=>/WORKZONE/i.test(l))?.split(':')[1]?.trim() || '';
-        } else if (upper.includes('TSEL')) {
+          ao = findByRegex('AO[ :|]+([A-Z0-9]+)');
+          workorder = findByRegex('WORKORDER[ :|]+([A-Z0-9-]+)');
+          serviceNo = findByRegex('SERVICE NO[ :|]+([0-9]+)');
+          customerName = findByRegex('CUSTOMER NAME[ :|]+(.+)');
+          workzone = findByRegex('WORKZONE[ :|]+([A-Z0-9]+)');
+          snOnt = findByRegex('SN ONT[ :|]+([A-Z0-9]+)') || findByRegex('(ZTEG[A-Z0-9]+|HWTC[A-Z0-9]+|HUAW[A-Z0-9]+|FHTT[A-Z0-9]+|FIBR[A-Z0-9]+)');
+          nikOnt = findByRegex('NIK ONT[ :|]+([0-9]+)');
+          stbId = findByRegex('STB ID[ :|]+([A-Z0-9]+)');
+          nikStb = findByRegex('NIK STB[ :|]+([0-9]+)');
+        }
+        // === TSEL ===
+        else if (upper.includes('TSEL')) {
           owner = 'TSEL';
-          ao = lines.find(l=>/AO/i.test(l))?.split(':')[1]?.trim() || '';
-          serviceNo = lines.find(l=>/SERVICE NO/i.test(l))?.split(':')[1]?.trim() || '';
-          snOnt = lines.find(l=>/SN ONT/i.test(l))?.split(':')[1]?.trim() || '';
-          nikOnt = lines.find(l=>/NIK ONT/i.test(l))?.split(':')[1]?.trim() || '';
-          customerName = lines.find(l=>/CUSTOMER NAME/i.test(l))?.split(':')[1]?.trim() || '';
-          workzone = lines.find(l=>/WORKZONE/i.test(l))?.split(':')[1]?.trim() || '';
-        } else {
-          // fallback: ambil label
+          ao = findByRegex('AO[ :|]+([A-Z0-9]+)');
+          workorder = findByRegex('WORKORDER[ :|]+([A-Z0-9-]+)');
+          serviceNo = findByRegex('SERVICE NO[ :|]+([0-9]+)');
+          customerName = findByRegex('CUSTOMER NAME[ :|]+(.+)');
+          workzone = findByRegex('WORKZONE[ :|]+([A-Z0-9]+)');
+          snOnt = findByRegex('SN ONT[ :|]+([A-Z0-9]+)') || findByRegex('(ZTEG[A-Z0-9]+|HWTC[A-Z0-9]+|HUAW[A-Z0-9]+|FHTT[A-Z0-9]+|FIBR[A-Z0-9]+)');
+          nikOnt = findByRegex('NIK ONT[ :|]+([0-9]+)');
+          stbId = findByRegex('STB ID[ :|]+([A-Z0-9]+)');
+          nikStb = findByRegex('NIK STB[ :|]+([0-9]+)');
+        }
+        // === fallback: label/manual/regex ===
+        else {
           function getValue(label) {
             const line = lines.find(l => l.toUpperCase().startsWith(label.toUpperCase() + ' :'));
             return line ? line.split(':').slice(1).join(':').trim() : '';
           }
-          ao = getValue('AO');
-          workorder = getValue('WORKORDER');
-          serviceNo = getValue('SERVICE NO');
-          customerName = getValue('CUSTOMER NAME');
-          owner = getValue('OWNER');
-          workzone = getValue('WORKZONE');
-          snOnt = getValue('SN ONT');
-          nikOnt = getValue('NIK ONT');
-          stbId = getValue('STB ID');
-          nikStb = getValue('NIK STB');
+          ao = getValue('AO') || findByRegex('AO[ :|]+([A-Z0-9]+)');
+          workorder = getValue('WORKORDER') || findByRegex('WORKORDER[ :|]+([A-Z0-9-]+)');
+          serviceNo = getValue('SERVICE NO') || findByRegex('SERVICE NO[ :|]+([0-9]+)');
+          customerName = getValue('CUSTOMER NAME') || findByRegex('CUSTOMER NAME[ :|]+(.+)');
+          owner = getValue('OWNER') || findByRegex('OWNER[ :|]+([A-Z0-9]+)');
+          workzone = getValue('WORKZONE') || findByRegex('WORKZONE[ :|]+([A-Z0-9]+)');
+          snOnt = getValue('SN ONT') || findByRegex('SN ONT[ :|]+([A-Z0-9]+)') || findByRegex('(ZTEG[A-Z0-9]+|HWTC[A-Z0-9]+|HUAW[A-Z0-9]+|FHTT[A-Z0-9]+|FIBR[A-Z0-9]+)');
+          nikOnt = getValue('NIK ONT') || findByRegex('NIK ONT[ :|]+([0-9]+)');
+          stbId = getValue('STB ID') || findByRegex('STB ID[ :|]+([A-Z0-9]+)');
+          nikStb = getValue('NIK STB') || findByRegex('NIK STB[ :|]+([0-9]+)');
         }
         return { ao, workorder, serviceNo, customerName, owner, workzone, snOnt, nikOnt, stbId, nikStb, teknisi };
       }
 
       const parsed = parseAktivasi(inputText, username);
       // Validasi minimal SN ONT dan NIK ONT harus ada
-      if (!parsed.snOnt || !parsed.nikOnt) {
-        return sendTelegram(chatId, '❌ Data tidak lengkap. Minimal harus ada SN ONT dan NIK ONT.');
+      let missing = [];
+      if (!parsed.snOnt) missing.push('SN ONT');
+      if (!parsed.nikOnt) missing.push('NIK ONT');
+      if (missing.length > 0) {
+        return sendTelegram(chatId, `❌ Data tidak lengkap. Field berikut wajib diisi: ${missing.join(', ')}`);
       }
 
       // === Cek duplikat: SN ONT dan NIK ONT sudah ada di sheet ===
