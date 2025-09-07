@@ -1,6 +1,8 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { google } = require('googleapis');
+const fs = require('fs');
+const path = require('path');
 
 // === Konfigurasi dari environment variables ===
 const TOKEN = process.env.TELEGRAM_TOKEN;
@@ -173,6 +175,30 @@ async function sendTelegram(chatId, text, options = {}) {
   }
 }
 
+// === Helper: Kirim file CSV ===
+async function sendCSVFile(chatId, csvContent, filename, options = {}) {
+  try {
+    const tempDir = '/tmp';
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const filePath = path.join(tempDir, filename);
+    fs.writeFileSync(filePath, csvContent, 'utf8');
+    
+    await bot.sendDocument(chatId, filePath, {
+      caption: `📊 File CSV berhasil digenerate!\nFilename: ${filename}`,
+      ...options
+    });
+    
+    // Cleanup file setelah dikirim
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    console.error('Error sending CSV file:', error);
+    throw error;
+  }
+}
+
 // === Helper: Cek user aktif dengan error handling ===
 async function getUserData(username) {
   try {
@@ -210,6 +236,123 @@ function getTodayDateString() {
   });
 }
 
+// === Helper: Parse tanggal dari string Indonesia ke Date object ===
+function parseIndonesianDate(dateStr) {
+  const months = {
+    'januari': '01', 'februari': '02', 'maret': '03', 'april': '04',
+    'mei': '05', 'juni': '06', 'juli': '07', 'agustus': '08',
+    'september': '09', 'oktober': '10', 'november': '11', 'desember': '12'
+  };
+  
+  const parts = dateStr.toLowerCase().split(' ');
+  if (parts.length >= 4) {
+    const day = parts[1].padStart(2, '0');
+    const month = months[parts[2]];
+    const year = parts[3];
+    if (month) {
+      return new Date(`${year}-${month}-${day}`);
+    }
+  }
+  return null;
+}
+
+// === Helper: Filter data berdasarkan periode ===
+function filterDataByPeriod(data, period, customDate = null) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  let startDate, endDate;
+  
+  if (customDate) {
+    // Parse custom date format (dd/mm/yyyy atau dd-mm-yyyy)
+    const datePattern = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/;
+    const match = customDate.match(datePattern);
+    if (match) {
+      const day = parseInt(match[1]);
+      const month = parseInt(match[2]) - 1; // Month is 0-indexed
+      const year = parseInt(match[3]);
+      const targetDate = new Date(year, month, day);
+      
+      if (period === 'daily') {
+        startDate = new Date(targetDate);
+        endDate = new Date(targetDate);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (period === 'weekly') {
+        // Get week start (Monday)
+        const dayOfWeek = targetDate.getDay();
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        startDate = new Date(targetDate);
+        startDate.setDate(targetDate.getDate() + mondayOffset);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + 6);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (period === 'monthly') {
+        startDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+        endDate = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+  } else {
+    // Default periods (current)
+    switch (period) {
+      case 'daily':
+        startDate = new Date(today);
+        endDate = new Date(today);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      case 'weekly':
+        const dayOfWeek = today.getDay();
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        startDate = new Date(today);
+        startDate.setDate(today.getDate() + mondayOffset);
+        endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + 6);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      case 'monthly':
+        startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+        endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      default:
+        return data.slice(1); // Return all data except header
+    }
+  }
+  
+  const filtered = [];
+  for (let i = 1; i < data.length; i++) {
+    const dateStr = data[i][0];
+    if (dateStr) {
+      const rowDate = parseIndonesianDate(dateStr);
+      if (rowDate && rowDate >= startDate && rowDate <= endDate) {
+        filtered.push(data[i]);
+      }
+    }
+  }
+  
+  return filtered;
+}
+
+// === Helper: Generate CSV content ===
+function generateCSV(data, headers) {
+  let csv = headers.join(',') + '\n';
+  
+  data.forEach(row => {
+    const csvRow = row.map(cell => {
+      const cellStr = (cell || '').toString();
+      // Escape double quotes and wrap in quotes if contains comma or quotes
+      if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+        return '"' + cellStr.replace(/"/g, '""') + '"';
+      }
+      return cellStr;
+    });
+    csv += csvRow.join(',') + '\n';
+  });
+  
+  return csv;
+}
+
 // === Handler pesan masuk dengan error handling lengkap ===
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -227,51 +370,85 @@ bot.on('message', async (msg) => {
       return;
     }
     
-    // === /ps: Laporan harian detail (hanya data hari ini dengan real-time refresh) ===
-    if (/^\/ps\b/i.test(text)) {
+    // === /exportcari: Export detail aktivasi user ke CSV ===
+    if (/^\/exportcari\b/i.test(text)) {
+      const user = await getUserData(username);
+      if (!user) {
+        return sendTelegram(chatId, '❌ Anda tidak terdaftar sebagai user aktif.', { reply_to_message_id: messageId });
+      }
+      
+      const data = await getSheetData(REKAPAN_SHEET);
+      const userTeknisi = (user[1] || username).replace('@', '').toLowerCase();
+      const userActivations = [];
+      
+      // Headers untuk CSV
+      const headers = ['TANGGAL', 'AO', 'WORKORDER', 'SERVICE_NO', 'CUSTOMER_NAME', 'OWNER', 'WORKZONE', 'SN_ONT', 'NIK_ONT', 'STB_ID', 'NIK_STB', 'TEKNISI'];
+      
+      // Filter data untuk user ini
+      for (let i = 1; i < data.length; i++) {
+        const teknisiData = (data[i][11] || '').replace('@', '').toLowerCase();
+        if (teknisiData === userTeknisi) {
+          userActivations.push(data[i]);
+        }
+      }
+      
+      if (userActivations.length === 0) {
+        return sendTelegram(chatId, '❌ Tidak ada data aktivasi untuk diekspor.', { reply_to_message_id: messageId });
+      }
+      
+      // Generate CSV
+      const csvContent = generateCSV(userActivations, headers);
+      const filename = `aktivasi_${userTeknisi}_${new Date().toISOString().split('T')[0]}.csv`;
+      
+      await sendCSVFile(chatId, csvContent, filename, { reply_to_message_id: messageId });
+    }
+    
+    // === /ps: Laporan harian detail dengan support tanggal custom ===
+    else if (/^\/ps\b/i.test(text)) {
       if (!(await isAdmin(username))) {
         return sendTelegram(chatId, '❌ Akses ditolak. Command /ps hanya untuk admin.', { reply_to_message_id: messageId });
       }
       
-      // Ambil data terbaru dari sheet
-      const data = await getSheetData(REKAPAN_SHEET);
-      const todayStr = getTodayDateString();
+      // Parse parameter tanggal jika ada
+      const args = text.split(' ').slice(1);
+      const customDate = args.length > 0 ? args[0] : null;
       
-      let total = 0;
+      const data = await getSheetData(REKAPAN_SHEET);
+      const filteredData = customDate ? 
+        filterDataByPeriod(data, 'daily', customDate) : 
+        filterDataByPeriod(data, 'daily');
+      
+      let total = filteredData.length;
       let teknisiMap = {}, workzoneMap = {}, ownerMap = {};
       
-      // Filter hanya data hari ini
-      for (let i = 1; i < data.length; i++) {
-        const tgl = (data[i][0] || '').trim();
-        if (tgl === todayStr) {
-          total++;
-          const teknisi = (data[i][11] || '-').toUpperCase();
-          const workzone = (data[i][6] || '-').toUpperCase();
-          const owner = (data[i][5] || '-').toUpperCase();
-          teknisiMap[teknisi] = (teknisiMap[teknisi] || 0) + 1;
-          workzoneMap[workzone] = (workzoneMap[workzone] || 0) + 1;
-          ownerMap[owner] = (ownerMap[owner] || 0) + 1;
-        }
-      }
+      filteredData.forEach(row => {
+        const teknisi = (row[11] || '-').toUpperCase();
+        const workzone = (row[6] || '-').toUpperCase();
+        const owner = (row[5] || '-').toUpperCase();
+        teknisiMap[teknisi] = (teknisiMap[teknisi] || 0) + 1;
+        workzoneMap[workzone] = (workzoneMap[workzone] || 0) + 1;
+        ownerMap[owner] = (ownerMap[owner] || 0) + 1;
+      });
       
-      let msg = `📊 <b>LAPORAN AKTIVASI HARI INI</b>\nTanggal: ${todayStr}\nTotal Aktivasi: ${total} SSL\n\n`;
+      const dateLabel = customDate ? `Tanggal: ${customDate}` : `Tanggal: ${getTodayDateString()}`;
+      let msg = `📊 <b>LAPORAN AKTIVASI HARIAN</b>\n${dateLabel}\nTotal Aktivasi: ${total} SSL\n\n`;
       
       if (total === 0) {
-        msg += '⚠️ Belum ada data aktivasi untuk hari ini.\n\n';
+        msg += '⚠️ Belum ada data aktivasi untuk periode ini.\n\n';
       } else {
-        msg += `METRICS HARI INI:\n- Teknisi Aktif: ${Object.keys(teknisiMap).length}\n- Workzone Tercover: ${Object.keys(workzoneMap).length}\n- Owner: ${Object.keys(ownerMap).length}\n\n`;
+        msg += `METRICS PERIODE INI:\n- Teknisi Aktif: ${Object.keys(teknisiMap).length}\n- Workzone Tercover: ${Object.keys(workzoneMap).length}\n- Owner: ${Object.keys(ownerMap).length}\n\n`;
         
-        msg += 'PERFORMA TEKNISI HARI INI:\n';
+        msg += 'PERFORMA TEKNISI:\n';
         Object.entries(teknisiMap).sort((a,b)=>b[1]-a[1]).forEach(([t,c],i)=>{
           msg+=`${i+1}. ${t}: ${c} SSL\n`;
         });
         
-        msg += '\nPERFORMA WORKZONE HARI INI:\n';
+        msg += '\nPERFORMA WORKZONE:\n';
         Object.entries(workzoneMap).sort((a,b)=>b[1]-a[1]).forEach(([w,c],i)=>{
           msg+=`${i+1}. ${w}: ${c} SSL\n`;
         });
         
-        msg += '\nPERFORMA OWNER HARI INI:\n';
+        msg += '\nPERFORMA OWNER:\n';
         Object.entries(ownerMap).sort((a,b)=>b[1]-a[1]).forEach(([o,c],i)=>{
           msg+=`${i+1}. ${o}: ${c} SSL\n`;
         });
@@ -281,8 +458,174 @@ bot.on('message', async (msg) => {
       return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
     }
     
+    // === /weekly: Laporan mingguan ===
+    else if (/^\/weekly\b/i.test(text)) {
+      if (!(await isAdmin(username))) {
+        return sendTelegram(chatId, '❌ Akses ditolak. Command /weekly hanya untuk admin.', { reply_to_message_id: messageId });
+      }
+      
+      const args = text.split(' ').slice(1);
+      const customDate = args.length > 0 ? args[0] : null;
+      
+      const data = await getSheetData(REKAPAN_SHEET);
+      const filteredData = filterDataByPeriod(data, 'weekly', customDate);
+      
+      let total = filteredData.length;
+      let teknisiMap = {}, workzoneMap = {}, ownerMap = {};
+      
+      filteredData.forEach(row => {
+        const teknisi = (row[11] || '-').toUpperCase();
+        const workzone = (row[6] || '-').toUpperCase();
+        const owner = (row[5] || '-').toUpperCase();
+        teknisiMap[teknisi] = (teknisiMap[teknisi] || 0) + 1;
+        workzoneMap[workzone] = (workzoneMap[workzone] || 0) + 1;
+        ownerMap[owner] = (ownerMap[owner] || 0) + 1;
+      });
+      
+      const periodLabel = customDate ? `Minggu dari: ${customDate}` : 'Minggu ini';
+      let msg = `📈 <b>LAPORAN AKTIVASI MINGGUAN</b>\n${periodLabel}\nTotal Aktivasi: ${total} SSL\n\n`;
+      
+      if (total === 0) {
+        msg += '⚠️ Belum ada data aktivasi untuk periode ini.\n\n';
+      } else {
+        msg += `METRICS MINGGUAN:\n- Teknisi Aktif: ${Object.keys(teknisiMap).length}\n- Workzone Tercover: ${Object.keys(workzoneMap).length}\n- Owner: ${Object.keys(ownerMap).length}\n\n`;
+        
+        msg += 'TOP 10 TEKNISI MINGGU INI:\n';
+        Object.entries(teknisiMap).sort((a,b)=>b[1]-a[1]).slice(0,10).forEach(([t,c],i)=>{
+          const medal = i < 3 ? ['🥇', '🥈', '🥉'][i] : `${i+1}.`;
+          msg+=`${medal} ${t}: ${c} SSL\n`;
+        });
+        
+        msg += '\nWORKZONE TERBAIK:\n';
+        Object.entries(workzoneMap).sort((a,b)=>b[1]-a[1]).slice(0,5).forEach(([w,c],i)=>{
+          msg+=`${i+1}. ${w}: ${c} SSL\n`;
+        });
+      }
+      
+      msg += `\nDATA SOURCE: REKAPAN_QUALITY\nGENERATED: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'})} WIB`;
+      return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
+    }
+    
+    // === /monthly: Laporan bulanan ===
+    else if (/^\/monthly\b/i.test(text)) {
+      if (!(await isAdmin(username))) {
+        return sendTelegram(chatId, '❌ Akses ditolak. Command /monthly hanya untuk admin.', { reply_to_message_id: messageId });
+      }
+      
+      const args = text.split(' ').slice(1);
+      const customDate = args.length > 0 ? args[0] : null;
+      
+      const data = await getSheetData(REKAPAN_SHEET);
+      const filteredData = filterDataByPeriod(data, 'monthly', customDate);
+      
+      let total = filteredData.length;
+      let teknisiMap = {}, workzoneMap = {}, ownerMap = {};
+      
+      filteredData.forEach(row => {
+        const teknisi = (row[11] || '-').toUpperCase();
+        const workzone = (row[6] || '-').toUpperCase();
+        const owner = (row[5] || '-').toUpperCase();
+        teknisiMap[teknisi] = (teknisiMap[teknisi] || 0) + 1;
+        workzoneMap[workzone] = (workzoneMap[workzone] || 0) + 1;
+        ownerMap[owner] = (ownerMap[owner] || 0) + 1;
+      });
+      
+      const periodLabel = customDate ? `Bulan dari: ${customDate}` : 'Bulan ini';
+      let msg = `📅 <b>LAPORAN AKTIVASI BULANAN</b>\n${periodLabel}\nTotal Aktivasi: ${total} SSL\n\n`;
+      
+      if (total === 0) {
+        msg += '⚠️ Belum ada data aktivasi untuk periode ini.\n\n';
+      } else {
+        msg += `METRICS BULANAN:\n- Teknisi Aktif: ${Object.keys(teknisiMap).length}\n- Workzone Tercover: ${Object.keys(workzoneMap).length}\n- Owner: ${Object.keys(ownerMap).length}\n- Rata-rata per hari: ${(total / 30).toFixed(1)} SSL\n\n`;
+        
+        msg += 'TOP 15 TEKNISI BULAN INI:\n';
+        Object.entries(teknisiMap).sort((a,b)=>b[1]-a[1]).slice(0,15).forEach(([t,c],i)=>{
+          const medal = i < 3 ? ['🥇', '🥈', '🥉'][i] : `${i+1}.`;
+          msg+=`${medal} ${t}: ${c} SSL\n`;
+        });
+        
+        msg += '\nWORKZONE TERBAIK:\n';
+        Object.entries(workzoneMap).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([w,c],i)=>{
+          msg+=`${i+1}. ${w}: ${c} SSL\n`;
+        });
+      }
+      
+      msg += `\nDATA SOURCE: REKAPAN_QUALITY\nGENERATED: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'})} WIB`;
+      return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
+    }
+    
+    // === /topteknisi: Ranking teknisi terbaik ===
+    else if (/^\/topteknisi\b/i.test(text)) {
+      if (!(await isAdmin(username))) {
+        return sendTelegram(chatId, '❌ Akses ditolak. Command /topteknisi hanya untuk admin.', { reply_to_message_id: messageId });
+      }
+      
+      const args = text.split(' ').slice(1);
+      const period = args[0] || 'all'; // all, daily, weekly, monthly
+      const customDate = args[1] || null;
+      
+      const data = await getSheetData(REKAPAN_SHEET);
+      let filteredData;
+      
+      switch (period.toLowerCase()) {
+        case 'daily':
+          filteredData = filterDataByPeriod(data, 'daily', customDate);
+          break;
+        case 'weekly':
+          filteredData = filterDataByPeriod(data, 'weekly', customDate);
+          break;
+        case 'monthly':
+          filteredData = filterDataByPeriod(data, 'monthly', customDate);
+          break;
+        default:
+          filteredData = data.slice(1); // All data
+      }
+      
+      let teknisiMap = {};
+      filteredData.forEach(row => {
+        const teknisi = (row[11] || '-').toUpperCase();
+        if (teknisi !== '-') {
+          teknisiMap[teknisi] = (teknisiMap[teknisi] || 0) + 1;
+        }
+      });
+      
+      const sortedTeknisi = Object.entries(teknisiMap).sort((a,b) => b[1] - a[1]);
+      const periodLabel = {
+        daily: customDate ? `Harian (${customDate})` : 'Hari ini',
+        weekly: customDate ? `Mingguan (${customDate})` : 'Minggu ini',
+        monthly: customDate ? `Bulanan (${customDate})` : 'Bulan ini',
+        all: 'Keseluruhan'
+      };
+      
+      let msg = `🏆 <b>RANKING TEKNISI TERBAIK</b>\nPeriode: ${periodLabel[period.toLowerCase()] || 'Keseluruhan'}\n\n`;
+      
+      if (sortedTeknisi.length === 0) {
+        msg += '⚠️ Belum ada data teknisi untuk periode ini.\n';
+      } else {
+        msg += `Total Teknisi Aktif: ${sortedTeknisi.length}\n\n`;
+        msg += '🏅 <b>TOP 20 TEKNISI:</b>\n';
+        
+        sortedTeknisi.slice(0, 20).forEach(([teknisi, count], index) => {
+          let icon = '';
+          if (index === 0) icon = '🥇';
+          else if (index === 1) icon = '🥈';
+          else if (index === 2) icon = '🥉';
+          else icon = `${index + 1}.`;
+          
+          msg += `${icon} ${teknisi}: <b>${count} SSL</b>\n`;
+        });
+        
+        if (sortedTeknisi.length > 20) {
+          msg += `\n... dan ${sortedTeknisi.length - 20} teknisi lainnya`;
+        }
+      }
+      
+      msg += `\nDATA SOURCE: REKAPAN_QUALITY\nGENERATED: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'})} WIB`;
+      return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
+    }
+    
     // === /allps: breakdown owner, sektor, top teknisi ===
-    if (/^\/allps\b/i.test(text)) {
+    else if (/^\/allps\b/i.test(text)) {
       if (!(await isAdmin(username))) {
         return sendTelegram(chatId, '❌ Akses ditolak. Command /allps hanya untuk admin.', { reply_to_message_id: messageId });
       }
@@ -320,7 +663,7 @@ bot.on('message', async (msg) => {
     }
     
     // === /cari: menampilkan total dari user tersebut (FIXED) ===
-    if (/^\/cari\b/i.test(text)) {
+    else if (/^\/cari\b/i.test(text)) {
       const user = await getUserData(username);
       if (!user) {
         return sendTelegram(chatId, '❌ Anda tidak terdaftar sebagai user aktif.', { reply_to_message_id: messageId });
@@ -356,6 +699,8 @@ bot.on('message', async (msg) => {
         Object.entries(workzoneMap).sort((a,b)=>b[1]-a[1]).forEach(([s,c])=>{
           msg+=`- ${s}: ${c}\n`;
         });
+        
+        msg += '\n💾 <i>Tip: Gunakan /exportcari untuk download data lengkap dalam format CSV</i>';
       }
       
       msg += `\nUpdated: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'})} WIB`;
@@ -363,7 +708,7 @@ bot.on('message', async (msg) => {
     }
     
     // === /@username: menampilkan total dari username tersebut (FIXED FORMAT) ===
-    if (/^\/[A-Za-z0-9_]+$/.test(text) && !text.match(/^\/cari|^\/ps|^\/allps|^\/clean|^\/help|^\/start|^\/aktivasi/i)) {
+    else if (/^\/[A-Za-z0-9_]+$/.test(text) && !text.match(/^\/cari|^\/ps|^\/allps|^\/clean|^\/help|^\/start|^\/aktivasi|^\/exportcari|^\/weekly|^\/monthly|^\/topteknisi/i)) {
       if (!(await isAdmin(username))) {
         return sendTelegram(chatId, '❌ Akses ditolak. Command ini hanya untuk admin.', { reply_to_message_id: messageId });
       }
@@ -405,7 +750,7 @@ bot.on('message', async (msg) => {
     }
     
     // === /clean: untuk menghapus duplikat di sheet ===
-    if (/^\/clean\b/i.test(text)) {
+    else if (/^\/clean\b/i.test(text)) {
       if (!(await isAdmin(username))) {
         return sendTelegram(chatId, '❌ Akses ditolak. Command /clean hanya untuk admin.', { reply_to_message_id: messageId });
       }
@@ -442,7 +787,7 @@ bot.on('message', async (msg) => {
     }
     
     // === /aktivasi: parsing multi-format yang diperbaiki, cek duplikat, simpan ===
-    if (/^\/aktivasi\b/i.test(text)) {
+    else if (/^\/aktivasi\b/i.test(text)) {
       const user = await getUserData(username);
       if (!user) {
         return sendTelegram(chatId, '❌ Anda tidak terdaftar sebagai user aktif.', { reply_to_message_id: messageId });
@@ -654,36 +999,62 @@ bot.on('message', async (msg) => {
       return sendTelegram(chatId, confirmMsg, { reply_to_message_id: messageId });
     }
     
-    // === /help: Command list lengkap ===
-    if (/^\/help\b/i.test(text) || /^\/start\b/i.test(text)) {
-      let helpMsg = '🤖 <b>Bot Rekapan Quality</b>\n\n';
-      helpMsg += '<b>Command User:</b>\n';
-      helpMsg += '/aktivasi <data> - Input data aktivasi\n';
-      helpMsg += '/cari - Statistik total aktivasi Anda\n';
-      helpMsg += '/statbulan - Statistik aktivasi bulan ini\n';
-      helpMsg += '/statminggu - Statistik aktivasi minggu ini\n';
-      helpMsg += '/help - Tampilkan bantuan ini\n';
-      helpMsg += '\n<b>Format /aktivasi (bisa BGES/WMS/TSEL/manual):</b>\n';
-      helpMsg += 'Contoh:\n';
-      helpMsg += 'OWNER : BGES\nAO : SC123456\nSERVICE NO : 9876543210\nCUSTOMER NAME : PT TEST\nWORKZONE : ZONE1\nSN ONT : ZTEGDA140D99\nNIK ONT : 12345678\n';
-      helpMsg += '\n';
+    // === /help: Command list yang diperbaiki dan lebih detail ===
+    else if (/^\/help\b/i.test(text) || /^\/start\b/i.test(text)) {
+      let helpMsg = '🤖 <b>Bot Rekapan Quality - Panduan Lengkap</b>\n\n';
+      
+      helpMsg += '📝 <b>COMMANDS UNTUK USER:</b>\n';
+      helpMsg += '• <code>/aktivasi [data]</code> - Input data aktivasi\n';
+      helpMsg += '• <code>/cari</code> - Lihat statistik total aktivasi Anda\n';
+      helpMsg += '• <code>/exportcari</code> - Download data aktivasi Anda dalam format CSV\n';
+      helpMsg += '• <code>/help</code> - Tampilkan bantuan ini\n\n';
+      
+      helpMsg += '📊 <b>FORMAT INPUT AKTIVASI:</b>\n';
+      helpMsg += 'Bot mendukung 3 format input:\n';
+      helpMsg += '1. <b>Auto-detect BGES/WMS:</b> Copy paste langsung dari sistem\n';
+      helpMsg += '2. <b>Auto-detect TSEL:</b> Copy paste langsung dari sistem\n';
+      helpMsg += '3. <b>Format Manual:</b>\n';
+      helpMsg += '   AO : SC123456\n';
+      helpMsg += '   SERVICE NO : 12345678901\n';
+      helpMsg += '   CUSTOMER NAME : JOHN DOE\n';
+      helpMsg += '   OWNER : BGES\n';
+      helpMsg += '   WORKZONE : MEDAN\n';
+      helpMsg += '   SN ONT : ZTEG12345678\n';
+      helpMsg += '   NIK ONT : 987654321\n\n';
+      
       if (await isAdmin(username)) {
-        helpMsg += '<b>Command Admin:</b>\n';
-        helpMsg += '/ps - Laporan harian (hari ini)\n';
-        helpMsg += '/allps - Ringkasan total keseluruhan\n';
-        helpMsg += '/stat <teknisi> - Statistik teknisi\n';
-        helpMsg += '/nik <NIK> - Statistik berdasarkan NIK\n';
-        helpMsg += '/username - Statistik berdasarkan username (contoh: /HKS_HENDRA_16951456)\n';
-        helpMsg += '/clean - Hapus data duplikat\n';
-        helpMsg += '/export - Export data ke CSV\n';
+        helpMsg += '👑 <b>ADMIN COMMANDS:</b>\n';
+        helpMsg += '• <code>/ps [tanggal]</code> - Laporan harian\n';
+        helpMsg += '   Contoh: /ps atau /ps 01/09/2025\n';
+        helpMsg += '• <code>/weekly [tanggal]</code> - Laporan mingguan\n';
+        helpMsg += '   Contoh: /weekly atau /weekly 01/09/2025\n';
+        helpMsg += '• <code>/monthly [tanggal]</code> - Laporan bulanan\n';
+        helpMsg += '   Contoh: /monthly atau /monthly 01/09/2025\n';
+        helpMsg += '• <code>/topteknisi [periode] [tanggal]</code> - Ranking teknisi\n';
+        helpMsg += '   Periode: all, daily, weekly, monthly\n';
+        helpMsg += '   Contoh: /topteknisi monthly 01/09/2025\n';
+        helpMsg += '• <code>/allps</code> - Ringkasan total keseluruhan\n';
+        helpMsg += '• <code>/[username]</code> - Statistik teknisi tertentu\n';
+        helpMsg += '   Contoh: /HKS_HENDRA_16951456\n';
+        helpMsg += '• <code>/clean</code> - Hapus data duplikat dari sheet\n\n';
       }
-      helpMsg += '\n<b>Catatan:</b>\n- Semua data otomatis dicek duplikat.\n- Format /aktivasi fleksibel, bisa copy-paste dari sistem manapun.\n- Untuk bantuan lebih lanjut, hubungi admin.\n';
+      
+      helpMsg += '💡 <b>TIPS PENGGUNAAN:</b>\n';
+      helpMsg += '• Field wajib: SN ONT dan NIK ONT\n';
+      helpMsg += '• Bot otomatis mendeteksi format BGES, WMS, dan TSEL\n';
+      helpMsg += '• Gunakan format tanggal: DD/MM/YYYY atau DD-MM-YYYY\n';
+      helpMsg += '• Data duplikat akan ditolak sistem\n';
+      helpMsg += '• Export CSV tersedia untuk backup data personal\n\n';
+      
+      helpMsg += '🚀 <b>Bot siap membantu aktivasi Anda!</b>\n';
+      helpMsg += '📅 Generated: ' + new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'}) + ' WIB';
+      
       return sendTelegram(chatId, helpMsg, { reply_to_message_id: messageId });
     }
     
     // Default response for unknown commands
-    if (text.startsWith('/')) {
-      return sendTelegram(chatId, '❓ Command tidak dikenali. Ketik /help untuk melihat daftar command.', { reply_to_message_id: messageId });
+    else if (text.startsWith('/')) {
+      return sendTelegram(chatId, '❓ Command tidak dikenali. Ketik /help untuk melihat daftar command lengkap.', { reply_to_message_id: messageId });
     }
     
   } catch (err) {
