@@ -982,15 +982,7 @@ bot.on('message', async (msg) => {
       
       // Tampilkan konfirmasi dengan data yang berhasil diparse
       let confirmMsg = '✅ Data berhasil disimpan ke sheet, GASPOLLL 🚀🚀!\n\n';
-      confirmMsg += '<b>Data yang tersimpan:</b>\n';
-      confirmMsg += `AO: ${parsed.ao || '-'}\n`;
-      confirmMsg += `Service No: ${parsed.serviceNo || '-'}\n`;
-      confirmMsg += `Customer: ${parsed.customerName || '-'}\n`;
-      confirmMsg += `Owner: ${parsed.owner || '-'}\n`;
-      confirmMsg += `Workzone: ${parsed.workzone || '-'}\n`;
-      confirmMsg += `SN ONT: ${parsed.snOnt || '-'}\n`;
-      confirmMsg += `NIK ONT: ${parsed.nikOnt || '-'}\n`;
-      confirmMsg += `Teknisi: ${parsed.teknisi}\n`;
+      confirmMsg += '<b>Lanjut GROUP FULFILLMENT dan PT1</b>\n';
       
       return sendTelegram(chatId, confirmMsg, { reply_to_message_id: messageId });
     }
@@ -1073,3 +1065,4 @@ console.log('Mode:', USE_WEBHOOK ? 'Webhook' : 'Polling');
 if (USE_WEBHOOK) {
   console.log('Listening on port:', PORT);
 }
+
