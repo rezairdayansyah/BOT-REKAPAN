@@ -95,6 +95,15 @@ async function isAdmin(username) {
 
 // === Handler pesan masuk dengan fitur lengkap ===
 bot.on('message', async (msg) => {
+  // DEBUG: log pesan masuk ke Railway log
+  try {
+    console.log('DEBUG: Pesan masuk:', {
+      chat_id: msg.chat.id,
+      username: msg.from.username,
+      chat_type: msg.chat.type,
+      text: msg.text
+    });
+  } catch (e) { console.error('DEBUG: gagal log pesan masuk', e); }
   const chatId = msg.chat.id;
   const text = (msg.text || '').trim();
   const username = msg.from.username || '';
