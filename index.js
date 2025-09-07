@@ -749,7 +749,7 @@ bot.on('message', async (msg) => {
       return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
     }
     
-    // === /clean: untuk menghapus duplikat di sheet ===
+    // === /clean: untuk menghapus duplikat di sheet berdasarkan AO ===
     else if (/^\/clean\b/i.test(text)) {
       if (!(await isAdmin(username))) {
         return sendTelegram(chatId, '❌ Akses ditolak. Command /clean hanya untuk admin.', { reply_to_message_id: messageId });
@@ -765,12 +765,10 @@ bot.on('message', async (msg) => {
       let duplicateCount = 0;
       
       for (let i = 1; i < data.length; i++) {
-        const snOnt = (data[i][7] || '').toUpperCase();
-        const nikOnt = (data[i][8] || '').toUpperCase();
-        const key = `${snOnt}-${nikOnt}`;
+        const ao = (data[i][1] || '').toUpperCase().trim(); // AO is in column index 1
         
-        if (!seen.has(key) && snOnt && nikOnt) {
-          seen.add(key);
+        if (!seen.has(ao) && ao) {
+          seen.add(ao);
           uniqueData.push(data[i]);
         } else {
           duplicateCount++;
@@ -783,10 +781,10 @@ bot.on('message', async (msg) => {
       
       // Update sheet with clean data
       await updateSheetData(REKAPAN_SHEET, `A1:L${uniqueData.length}`, uniqueData);
-      return sendTelegram(chatId, `✅ Berhasil menghapus ${duplicateCount} data duplikat. Sheet telah dibersihkan.`, { reply_to_message_id: messageId });
+      return sendTelegram(chatId, `✅ Berhasil menghapus ${duplicateCount} data duplikat berdasarkan AO. Sheet telah dibersihkan.`, { reply_to_message_id: messageId });
     }
     
-    // === /aktivasi: parsing multi-format yang diperbaiki, cek duplikat, simpan ===
+    // === /aktivasi: parsing multi-format yang diperbaiki, cek duplikat berdasarkan AO, simpan ===
     else if (/^\/aktivasi\b/i.test(text)) {
       const user = await getUserData(username);
       if (!user) {
@@ -942,26 +940,24 @@ bot.on('message', async (msg) => {
       
       const parsed = parseAktivasi(inputText, user);
       
-      // Validasi minimal SN ONT dan NIK ONT harus ada
+      // Validasi minimal AO harus ada (changed from SN ONT and NIK ONT)
       let missing = [];
-      if (!parsed.snOnt) missing.push('SN ONT');
-      if (!parsed.nikOnt) missing.push('NIK ONT');
+      if (!parsed.ao) missing.push('AO');
       if (missing.length > 0) {
         return sendTelegram(chatId, `❌ Data tidak lengkap. Field berikut wajib diisi: ${missing.join(', ')}`, { reply_to_message_id: messageId });
       }
       
-      // === Cek duplikat: SN ONT dan NIK ONT sudah ada di sheet ===
+      // === Cek duplikat: AO sudah ada di sheet ===
       const data = await getSheetData(REKAPAN_SHEET);
       let isDuplicate = false;
       for (let i = 1; i < data.length; i++) {
-        if ((data[i][7] || '').toUpperCase() === parsed.snOnt.toUpperCase() && 
-            (data[i][8] || '').toUpperCase() === parsed.nikOnt.toUpperCase()) {
+        if ((data[i][1] || '').toUpperCase().trim() === parsed.ao.toUpperCase().trim()) {
           isDuplicate = true;
           break;
         }
       }
       if (isDuplicate) {
-        return sendTelegram(chatId, '❌ Data duplikat. SN ONT dan NIK ONT sudah pernah diinput.', { reply_to_message_id: messageId });
+        return sendTelegram(chatId, '❌ Data duplikat. AO sudah pernah diinput.', { reply_to_message_id: messageId });
       }
       
       // Susun data sesuai urutan kolom sheet
@@ -992,8 +988,8 @@ bot.on('message', async (msg) => {
       confirmMsg += `Customer: ${parsed.customerName || '-'}\n`;
       confirmMsg += `Owner: ${parsed.owner || '-'}\n`;
       confirmMsg += `Workzone: ${parsed.workzone || '-'}\n`;
-      confirmMsg += `SN ONT: ${parsed.snOnt}\n`;
-      confirmMsg += `NIK ONT: ${parsed.nikOnt}\n`;
+      confirmMsg += `SN ONT: ${parsed.snOnt || '-'}\n`;
+      confirmMsg += `NIK ONT: ${parsed.nikOnt || '-'}\n`;
       confirmMsg += `Teknisi: ${parsed.teknisi}\n`;
       
       return sendTelegram(chatId, confirmMsg, { reply_to_message_id: messageId });
@@ -1040,10 +1036,10 @@ bot.on('message', async (msg) => {
       }
       
       helpMsg += '💡 <b>TIPS PENGGUNAAN:</b>\n';
-      helpMsg += '• Field wajib: SN ONT dan NIK ONT\n';
+      helpMsg += '• Field wajib: AO, SERVICE NO, CUSTOMER NAME, OWNER, WORKZONE, SN ONT, NIK ONT\n';
       helpMsg += '• Bot otomatis mendeteksi format BGES, WMS, dan TSEL\n';
       helpMsg += '• Gunakan format tanggal: DD/MM/YYYY atau DD-MM-YYYY\n';
-      helpMsg += '• Data duplikat akan ditolak sistem\n';
+      helpMsg += '• Data duplikat (berdasarkan SERVICE NO) akan ditolak sistem\n';
       helpMsg += '• Export CSV tersedia untuk backup data personal\n\n';
       
       helpMsg += '🚀 <b>Bot siap membantu aktivasi Anda!</b>\n';
