@@ -1054,7 +1054,7 @@ bot.on('message', async (msg) => {
     
     // Default response for unknown commands
     else if (text.startsWith('/')) {
-      return sendTelegram(chatId, '❓ Command tidak dikenali. Ketik /help untuk melihat daftar command lengkap.', { reply_to_message_id: messageId });
+      return sendTelegram(chatId, '❓ Command tidak dikenali. Ketik /help untuk melihat daftar command yang tersedia untuk Anda.', { reply_to_message_id: messageId });
     }
     
   } catch (err) {
