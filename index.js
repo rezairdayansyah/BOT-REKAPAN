@@ -645,4 +645,20 @@ bot.on('message', async (msg) => {
       await appendSheetData(REKAPAN_SHEET, row);
       return sendTelegram(chatId, '✅ Data berhasil disimpan ke sheet, GASPOLLL 🚀🚀!', { reply_to_message_id: messageId });
     }
-    // ...existing code...
+  // Akhir handler bot.on('message')
+});
+
+// Error handling untuk uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+console.log('Bot Telegram Rekapan started successfully!');
+console.log('Mode:', USE_WEBHOOK ? 'Webhook' : 'Polling');
+if (USE_WEBHOOK) {
+  console.log('Listening on port:', PORT);
+}
