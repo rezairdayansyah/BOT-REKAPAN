@@ -194,7 +194,7 @@ bot.on('message', async (msg) => {
         }
       }
       if (found.length === 0) return sendTelegram(chatId, `SN <b>${sn}</b> tidak ditemukan.`);
-      let msgText = `📄 <b>Data SN ${sn}:</b>\n`;
+      let msgText = `📄 <b>Data SN</b> <b>${sn}</b>:\n`;
       found.forEach(row => {
         msgText += `Tgl: ${row[0]}, User: ${row[1]}, Status: ${row[6] || '-'}\n`;
       });
