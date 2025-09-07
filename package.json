@@ -1,9 +1,9 @@
 {
-  "name": "bot_ont",
+  "name": "bot_rekapan",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "rekapan.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node rekapan.js"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.66.0",
@@ -13,4 +13,5 @@
   "engines": {
     "node": ">=16.0.0"
   }
+
 }
