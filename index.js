@@ -398,6 +398,10 @@ bot.on('message', async (msg) => {
       
       // Generate CSV
       try {
+        // ...existing code...
+      } catch (error) {
+        console.error(error);
+      }
         // === Kirim pesan proses awal agar user tidak menunggu lama ===
         let processingMsg = null;
         const sendProcessing = async () => {
