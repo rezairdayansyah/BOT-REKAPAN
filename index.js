@@ -708,7 +708,7 @@ bot.on('message', async (msg) => {
     }
     
     // === /@username: menampilkan total dari username tersebut (FIXED FORMAT) ===
-    else if (/^\/[A-Za-z0-9_]+$/.test(text) && !text.match(/^\/cari|^\/ps|^\/allps|^\/clean|^\/help|^\/start|^\/aktivasi|^\/exportcari|^\/weekly|^\/monthly|^\/topteknisi/i)) {
+    else if (/^\/[A-Za-z0-9_]+$/.test(text) && !text.match(/^\/cari|^\/ps|^\/allps|^\/clean|^\/clear|^\/help|^\/start|^\/aktivasi|^\/exportcari|^\/weekly|^\/monthly|^\/topteknisi/i)) {
       if (!(await isAdmin(username))) {
         return sendTelegram(chatId, '❌ Akses ditolak. Command ini hanya untuk admin.', { reply_to_message_id: messageId });
       }
@@ -749,10 +749,10 @@ bot.on('message', async (msg) => {
       return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
     }
     
-    // === /clean: untuk menghapus duplikat di sheet berdasarkan AO ===
-    else if (/^\/clean\b/i.test(text)) {
+    // === /clear: untuk menghapus duplikat di sheet berdasarkan AO ===
+    else if (/^\/clear\b/i.test(text)) {
       if (!(await isAdmin(username))) {
-        return sendTelegram(chatId, '❌ Akses ditolak. Command /clean hanya untuk admin.', { reply_to_message_id: messageId });
+        return sendTelegram(chatId, '❌ Akses ditolak. Command /clear hanya untuk admin.', { reply_to_message_id: messageId });
       }
       
       const data = await getSheetData(REKAPAN_SHEET);
@@ -796,12 +796,14 @@ bot.on('message', async (msg) => {
         return sendTelegram(chatId, 'Silakan kirim data aktivasi setelah /aktivasi.', { reply_to_message_id: messageId });
       }
       
-      // === Parsing multi-format yang diperbaiki untuk BGES dan WMS ===
+      // === Parsing multi-format yang diperbaiki untuk BGES, WMS dan TSEL ===
       function parseAktivasi(text, userRow) {
         const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
         const upper = text.toUpperCase();
         let ao='', workorder='', serviceNo='', customerName='', owner='', workzone='', snOnt='', nikOnt='', stbId='', nikStb='', teknisi='';
-        teknisi = userRow[1] || username;
+        
+        // Teknisi diambil dari user data, tanpa @
+        teknisi = (userRow[1] || username).replace('@', '');
         
         // Helper untuk mencari nilai dengan berbagai pola
         function findValue(patterns) {
@@ -818,25 +820,82 @@ bot.on('message', async (msg) => {
           return '';
         }
         
-        // Deteksi owner berdasarkan keyword
+        // Deteksi owner berdasarkan keyword yang lebih akurat
         function detectOwner(text) {
           const upperText = text.toUpperCase();
+          // TSEL detection - lebih prioritas karena bisa ada false positive
+          if (upperText.includes('CHANNEL : DIGIPOS') || 
+              upperText.includes('DATE CREATED') || 
+              upperText.includes('WORKORDER : WO')) {
+            return 'TSEL';
+          }
           if (upperText.includes('INDIBIZ') || upperText.includes('HSI')) {
             return 'BGES';
           }
           if (upperText.includes('WMS') || upperText.includes('MWS')) {
             return 'WMS';
           }
-          if (upperText.includes('TSEL')) {
-            return 'TSEL';
-          }
           return '';
         }
         
         owner = detectOwner(text);
         
+        // === TSEL parsing (format baru yang lebih akurat) ===
+        if (owner === 'TSEL') {
+          // AO - dari field AO langsung
+          ao = findValue([
+            /AO\s*:\s*([A-Za-z0-9]+)/i,
+            /AO\s*([A-Za-z0-9]+)/i
+          ]);
+          
+          // Workorder - dari field WORKORDER
+          workorder = findValue([
+            /WORKORDER\s*:\s*([A-Za-z0-9]+)/i
+          ]) || ao;
+          
+          // Service No - dari field SERVICE NO
+          serviceNo = findValue([
+            /SERVICE\s*NO\s*:\s*(\d+)/i
+          ]);
+          
+          // Customer Name - dari field CUSTOMER NAME
+          customerName = findValue([
+            /CUSTOMER\s*NAME\s*:\s*([A-Z0-9\s]+)/i
+          ]);
+          
+          // Workzone - dari field WORKZONE
+          workzone = findValue([
+            /WORKZONE\s*:\s*([A-Z0-9]+)/i
+          ]);
+          
+          // SN ONT - dari field SN ONT atau pattern ONT
+          snOnt = findValue([
+            /SN\s*ONT\s*:\s*([A-Z0-9]+)/i,
+            /(ZTEGDA[A-Z0-9]+)/i,
+            /(HWTC[A-Z0-9]+)/i,
+            /(HUAW[A-Z0-9]+)/i,
+            /(FHTT[A-Z0-9]+)/i,
+            /(FIBR[A-Z0-9]+)/i
+          ]);
+          
+          // NIK ONT - dari field NIK ONT
+          nikOnt = findValue([
+            /NIK\s*ONT\s*:\s*(\d+)/i
+          ]);
+          
+          // STB ID - hanya jika ada, jangan ambil NIK ONT
+          const stbPattern = /STB\s*ID\s*:\s*([A-Z0-9]+)/i;
+          const stbMatch = text.match(stbPattern);
+          if (stbMatch && stbMatch[1]) {
+            stbId = stbMatch[1];
+            // NIK STB - hanya jika ada STB ID
+            nikStb = findValue([
+              /NIK\s*STB\s*:\s*(\d+)/i
+            ]);
+          }
+        }
         // === BGES dan WMS parsing ===
-        if (owner === 'BGES' || owner === 'WMS') {
+        else if (owner === 'BGES' || owner === 'WMS') {
           // AO/Workorder - ambil SC Number terakhir
           const aoMatches = text.match(/AO\|.*?(SC\d{6,})/g);
           if (aoMatches && aoMatches.length > 0) {
@@ -887,28 +946,6 @@ bot.on('message', async (msg) => {
           stbId = findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
           nikStb = findValue([/NIK\s*STB[:\s]+(\d+)/i]);
         }
-        // === TSEL ===
-        else if (owner === 'TSEL') {
-          ao = findValue([
-            /AO[:\s]+([A-Z0-9]+)/i,
-            /SC(\d+)/i
-          ]);
-          workorder = findValue([/WORKORDER[:\s]+([A-Z0-9-]+)/i]) || ao;
-          serviceNo = findValue([/SERVICE\s*NO[:\s]+(\d+)/i]);
-          customerName = findValue([/CUSTOMER\s*NAME[:\s]+(.+)/i]);
-          workzone = findValue([/WORKZONE[:\s]+([A-Z0-9]+)/i]);
-          snOnt = findValue([
-            /SN\s*ONT[:\s]+([A-Z0-9]+)/i,
-            /(ZTEG[A-Z0-9]+)/i,
-            /(HWTC[A-Z0-9]+)/i,
-            /(HUAW[A-Z0-9]+)/i,
-            /(FHTT[A-Z0-9]+)/i,
-            /(FIBR[A-Z0-9]+)/i
-          ]);
-          nikOnt = findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
-          stbId = findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
-          nikStb = findValue([/NIK\s*STB[:\s]+(\d+)/i]);
-        }
         // === fallback: label/manual/regex ===
         else {
           function getValue(label) {
@@ -940,7 +977,7 @@ bot.on('message', async (msg) => {
       
       const parsed = parseAktivasi(inputText, user);
       
-      // Validasi minimal AO harus ada (changed from SN ONT and NIK ONT)
+      // Validasi minimal AO harus ada
       let missing = [];
       if (!parsed.ao) missing.push('AO');
       if (missing.length > 0) {
@@ -1024,14 +1061,14 @@ bot.on('message', async (msg) => {
         helpMsg += '• <code>/allps</code> - Ringkasan total keseluruhan\n';
         helpMsg += '• <code>/[username]</code> - Statistik teknisi tertentu\n';
         helpMsg += '   Contoh: /HKS_HENDRA_16951456\n';
-        helpMsg += '• <code>/clean</code> - Hapus data duplikat dari sheet\n\n';
+        helpMsg += '• <code>/clear</code> - Hapus data duplikat dari sheet\n\n';
       }
       
       helpMsg += '💡 <b>TIPS PENGGUNAAN:</b>\n';
       helpMsg += '• Field wajib: AO, SERVICE NO, CUSTOMER NAME, OWNER, WORKZONE, SN ONT, NIK ONT\n';
       helpMsg += '• Bot otomatis mendeteksi format BGES, WMS, dan TSEL\n';
       helpMsg += '• Gunakan format tanggal: DD/MM/YYYY atau DD-MM-YYYY\n';
-      helpMsg += '• Data duplikat (berdasarkan SERVICE NO) akan ditolak sistem\n';
+      helpMsg += '• Data duplikat (berdasarkan AO) akan ditolak sistem\n';
       helpMsg += '• Export CSV tersedia untuk backup data personal\n\n';
       
       helpMsg += '🚀 <b>Bot siap membantu aktivasi Anda!</b>\n';
@@ -1065,4 +1102,3 @@ console.log('Mode:', USE_WEBHOOK ? 'Webhook' : 'Polling');
 if (USE_WEBHOOK) {
   console.log('Listening on port:', PORT);
 }
-
