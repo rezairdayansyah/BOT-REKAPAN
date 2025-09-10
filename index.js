@@ -256,6 +256,17 @@ function parseIndonesianDate(dateStr) {
   return null;
 }
 
+// === Helper: Clean customer name by removing WORKZONE suffix ===
+function cleanCustomerName(name) {
+  if (!name) return '';
+  
+  // Remove "WORKZONE" and any text after it (case insensitive)
+  // This will handle patterns like "RZKLDESSY YUNANDA WORKZONE" -> "RZKLDESSY YUNANDA"
+  const cleaned = name.replace(/\s+WORKZONE.*$/i, '').trim();
+  
+  return cleaned;
+}
+
 // === Helper: Filter data berdasarkan periode ===
 function filterDataByPeriod(data, period, customDate = null) {
   const today = new Date();
@@ -351,19 +362,6 @@ function generateCSV(data, headers) {
   });
   
   return csv;
-}
-
-// === Helper: Clean customer name from WORKZONE contamination ===
-function cleanCustomerName(customerName) {
-  if (!customerName) return '';
-  
-  // Remove "WORKZONE" and variations (case insensitive)
-  let cleaned = customerName.replace(/\s*WORKZONE\s*/gi, '');
-  
-  // Remove any trailing/leading spaces and multiple spaces
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-  
-  return cleaned;
 }
 
 // === Handler pesan masuk dengan error handling lengkap ===
@@ -635,6 +633,3 @@ bot.on('message', async (msg) => {
       
       msg += `\nDATA SOURCE: REKAPAN_QUALITY\nGENERATED: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Jakarta'})} WIB`;
       return sendTelegram(chatId, msg, { reply_to_message_id: messageId });
-    }
-    
-    // === /all
