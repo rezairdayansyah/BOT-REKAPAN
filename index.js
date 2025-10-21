@@ -152,8 +152,11 @@ function parseAktivasi(text, userRow, username) {
     const mitraMatch = text.match(/MITRA\s*:\s*(.+)/i);
     const mitra = mitraMatch && mitraMatch[1] ? mitraMatch[1].trim() : '';
 
-    // Prefer MITRA value as owner if present (records partner), otherwise keep detected owner
-    owner = mitra || owner;
+    // For BGES messages we want OWNER to be 'BS' (the channel),
+    // keep MITRA in a separate variable but do not overwrite OWNER.
+    if (owner === 'BGES') {
+      owner = 'BS';
+    }
 
     // SN / NIK / STB
     snOnt = findValue([
