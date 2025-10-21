@@ -4,6 +4,168 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
+// Inline parser function (previously in lib/parseAktivasi.js)
+function parseAktivasi(text, userRow, username) {
+  const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
+  const upper = text.toUpperCase();
+  let ao='', workorder='', serviceNo='', customerName='', owner='', workzone='', snOnt='', nikOnt='', stbId='', nikStb='', teknisi='';
+  teknisi = (userRow && userRow[1]) ? (userRow[1] || username).replace('@', '') : (username || '');
+
+  function findValue(patterns) {
+    for (const pattern of patterns) {
+      const matches = text.match(pattern);
+      if (matches) {
+        if (pattern.global) {
+          return matches[matches.length - 1];
+        } else if (matches[1]) {
+          return matches[1].trim();
+        }
+      }
+    }
+    return '';
+  }
+
+  function detectOwner(text) {
+    const upperText = text.toUpperCase();
+    if (upperText.includes('CHANNEL : DIGIPOS') || upperText.includes('DATE CREATED') || upperText.includes('WORKORDER : WO')) {
+      return 'TSEL';
+    }
+    if (upperText.includes('INDIBIZ') || upperText.includes('HSI') || upperText.includes('SC ORDER') || upperText.includes('NCLI') || upperText.includes('MITRA') ) {
+      return 'BGES';
+    }
+    if (upperText.includes('WMS') || upperText.includes('MWS')) {
+      return 'WMS';
+    }
+    return '';
+  }
+
+  owner = detectOwner(text);
+
+  if (owner === 'TSEL') {
+    ao = findValue([
+      /AO\s*:\s*([A-Za-z0-9]+)/i,
+      /AO\s*([A-Za-z0-9]+)/i
+    ]);
+    workorder = findValue([
+      /WORKORDER\s*:\s*([A-Za-z0-9]+)/i
+    ]) || ao;
+    serviceNo = findValue([
+      /SERVICE\s*NO\s*:\s*(\d+)/i
+    ]);
+    customerName = findValue([
+      /CUSTOMER\s*NAME\s*:\s*([A-Z0-9\s]+)/i
+    ]);
+    workzone = findValue([
+      /WORKZONE\s*:\s*([A-Z0-9]+)/i
+    ]);
+    snOnt = findValue([
+      /SN\s*ONT\s*:\s*([A-Z0-9]+)/i,
+      /(ZTEGDA[A-Z0-9]+)/i,
+      /(HWTC[A-Z0-9]+)/i,
+      /(HUAW[A-Z0-9]+)/i,
+      /(FHTT[A-Z0-9]+)/i,
+      /(FIBR[A-Z0-9]+)/i
+    ]);
+    nikOnt = findValue([/NIK\s*ONT\s*:\s*(\d+)/i]);
+    const stbPattern = /STB\s*ID\s*:\s*([A-Z0-9]+)/i;
+    const stbMatch = text.match(stbPattern);
+    if (stbMatch && stbMatch[1]) {
+      stbId = stbMatch[1];
+      nikStb = findValue([/NIK\s*STB\s*:\s*(\d+)/i]);
+    }
+  } else if (owner === 'BGES' || owner === 'WMS') {
+    const scOrderMatch = text.match(/SC\s*ORDER\s*NO\s*:\s*([0-9A-Za-z\-]+)/i);
+    if (scOrderMatch && scOrderMatch[1]) {
+      const val = scOrderMatch[1].trim();
+      ao = /^SC/i.test(val) ? val : `SC${val}`;
+      workorder = ao;
+    } else {
+      const aoMatches = text.match(/AO\|.*?(SC\d{6,})/g);
+      if (aoMatches && aoMatches.length > 0) {
+        const lastMatch = aoMatches[aoMatches.length - 1];
+        const scMatch = lastMatch.match(/SC(\d{6,})/);
+        if (scMatch) {
+          ao = `SC${scMatch[1]}`;
+          workorder = ao;
+        }
+      }
+    }
+    const serviceMatch = text.match(/SERVICE\s*NO\s*:\s*(\d+)/i);
+    if (serviceMatch && serviceMatch[1]) {
+      serviceNo = serviceMatch[1].trim();
+    } else {
+      const serviceNoMatches = text.match(/\b\d{11,12}\b/g);
+      if (serviceNoMatches && serviceNoMatches.length > 0) {
+        serviceNo = serviceNoMatches[serviceNoMatches.length - 1];
+      }
+    }
+    const custMatch = text.match(/CUSTOMER\s*NAME\s*:\s*(.+)/i);
+    if (custMatch && custMatch[1]) {
+      customerName = custMatch[1].trim();
+    } else {
+      const customerMatches = text.match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/g);
+      if (customerMatches && customerMatches.length > 0) {
+        const nameMatch = customerMatches[0].match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/);
+        if (nameMatch && nameMatch[1]) {
+          customerName = nameMatch[1].trim();
+        }
+      }
+    }
+    const wzMatch = text.match(/WORKZONE\s*:\s*([A-Z0-9\-\/]+)/i);
+    if (wzMatch && wzMatch[1]) {
+      workzone = wzMatch[1].trim();
+    } else {
+      const workzoneMatches = text.match(/AO\|\s+([A-Z]{2,})/g);
+      if (workzoneMatches && workzoneMatches.length > 0) {
+        const lastWorkzoneMatch = workzoneMatches[workzoneMatches.length - 1];
+        const wz2 = lastWorkzoneMatch.match(/AO\|\s+([A-Z]{2,})/);
+        if (wz2 && wz2[1]) {
+          workzone = wz2[1];
+        }
+      }
+    }
+    const odpMatch = text.match(/ODP\s*:\s*([A-Z0-9\-\/]+)/i);
+    if (odpMatch && odpMatch[1] && !workzone) {
+      workzone = odpMatch[1].trim();
+    }
+    snOnt = findValue([
+      /SN\s*ONT[:\s]+([A-Z0-9]+)/i,
+      /(ZTEG[A-Z0-9]+)/i,
+      /(HWTC[A-Z0-9]+)/i,
+      /(HUAW[A-Z0-9]+)/i,
+      /(FHTT[A-Z0-9]+)/i,
+      /(FIBR[A-Z0-9]+)/i
+    ]);
+    nikOnt = findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
+    stbId = findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
+    nikStb = findValue([/NIK\s*STB[:\s]+(\d+)/i]);
+  } else {
+    function getValue(label) {
+      const line = lines.find(l => l.toUpperCase().startsWith(label.toUpperCase() + ' :'));
+      return line ? line.split(':').slice(1).join(':').trim() : '';
+    }
+    ao = getValue('AO') || findValue([/AO[:\s]+([A-Z0-9]+)/i]);
+    workorder = getValue('WORKORDER') || findValue([/WORKORDER[:\s]+([A-Z0-9-]+)/i]);
+    serviceNo = getValue('SERVICE NO') || findValue([/SERVICE\s*NO[:\s]+(\d+)/i]);
+    customerName = getValue('CUSTOMER NAME') || findValue([/CUSTOMER\s*NAME[:\s]+(.+)/i]);
+    owner = getValue('OWNER') || findValue([/OWNER[:\s]+([A-Z0-9]+)/i]);
+    workzone = getValue('WORKZONE') || findValue([/WORKZONE[:\s]+([A-Z0-9]+)/i]);
+    snOnt = getValue('SN ONT') || findValue([
+      /SN\s*ONT[:\s]+([A-Z0-9]+)/i,
+      /(ZTEG[A-Z0-9]+)/i,
+      /(HWTC[A-Z0-9]+)/i,
+      /(HUAW[A-Z0-9]+)/i,
+      /(FHTT[A-Z0-9]+)/i,
+      /(FIBR[A-Z0-9]+)/i
+    ]);
+    nikOnt = getValue('NIK ONT') || findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
+    stbId = getValue('STB ID') || findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
+    nikStb = getValue('NIK STB') || findValue([/NIK\s*STB[:\s]+(\d+)/i]);
+  }
+
+  return { ao, workorder, serviceNo, customerName, owner, workzone, snOnt, nikOnt, stbId, nikStb, teknisi };
+}
+
 // === Konfigurasi dari environment variables ===
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
@@ -796,186 +958,8 @@ bot.on('message', async (msg) => {
         return sendTelegram(chatId, 'Silakan kirim data aktivasi setelah /aktivasi.', { reply_to_message_id: messageId });
       }
       
-      // === Parsing multi-format yang diperbaiki untuk BGES, WMS dan TSEL ===
-      function parseAktivasi(text, userRow) {
-        const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
-        const upper = text.toUpperCase();
-        let ao='', workorder='', serviceNo='', customerName='', owner='', workzone='', snOnt='', nikOnt='', stbId='', nikStb='', teknisi='';
-        
-        // Teknisi diambil dari user data, tanpa @
-        teknisi = (userRow[1] || username).replace('@', '');
-        
-        // Helper untuk mencari nilai dengan berbagai pola
-        function findValue(patterns) {
-          for (const pattern of patterns) {
-            const matches = text.match(pattern);
-            if (matches) {
-              if (pattern.global) {
-                return matches[matches.length - 1]; // ambil yang terakhir
-              } else if (matches[1]) {
-                return matches[1].trim();
-              }
-            }
-          }
-          return '';
-        }
-        
-        // Deteksi owner berdasarkan keyword yang lebih akurat
-        function detectOwner(text) {
-          const upperText = text.toUpperCase();
-          // TSEL detection - lebih prioritas karena bisa ada false positive
-          if (upperText.includes('CHANNEL : DIGIPOS') || 
-              upperText.includes('DATE CREATED') || 
-              upperText.includes('WORKORDER : WO')) {
-            return 'TSEL';
-          }
-          if (upperText.includes('INDIBIZ') || upperText.includes('HSI')) {
-            return 'BGES';
-          }
-          if (upperText.includes('WMS') || upperText.includes('MWS')) {
-            return 'WMS';
-          }
-          return '';
-        }
-        
-        owner = detectOwner(text);
-        
-        // === TSEL parsing (format baru yang lebih akurat) ===
-        if (owner === 'TSEL') {
-          // AO - dari field AO langsung
-          ao = findValue([
-            /AO\s*:\s*([A-Za-z0-9]+)/i,
-            /AO\s*([A-Za-z0-9]+)/i
-          ]);
-          
-          // Workorder - dari field WORKORDER
-          workorder = findValue([
-            /WORKORDER\s*:\s*([A-Za-z0-9]+)/i
-          ]) || ao;
-          
-          // Service No - dari field SERVICE NO
-          serviceNo = findValue([
-            /SERVICE\s*NO\s*:\s*(\d+)/i
-          ]);
-          
-          // Customer Name - dari field CUSTOMER NAME
-          customerName = findValue([
-            /CUSTOMER\s*NAME\s*:\s*([A-Z0-9\s]+)/i
-          ]);
-          
-          // Workzone - dari field WORKZONE
-          workzone = findValue([
-            /WORKZONE\s*:\s*([A-Z0-9]+)/i
-          ]);
-          
-          // SN ONT - dari field SN ONT atau pattern ONT
-          snOnt = findValue([
-            /SN\s*ONT\s*:\s*([A-Z0-9]+)/i,
-            /(ZTEGDA[A-Z0-9]+)/i,
-            /(HWTC[A-Z0-9]+)/i,
-            /(HUAW[A-Z0-9]+)/i,
-            /(FHTT[A-Z0-9]+)/i,
-            /(FIBR[A-Z0-9]+)/i
-          ]);
-          
-          // NIK ONT - dari field NIK ONT
-          nikOnt = findValue([
-            /NIK\s*ONT\s*:\s*(\d+)/i
-          ]);
-          
-          // STB ID - hanya jika ada, jangan ambil NIK ONT
-          const stbPattern = /STB\s*ID\s*:\s*([A-Z0-9]+)/i;
-          const stbMatch = text.match(stbPattern);
-          if (stbMatch && stbMatch[1]) {
-            stbId = stbMatch[1];
-            // NIK STB - hanya jika ada STB ID
-            nikStb = findValue([
-              /NIK\s*STB\s*:\s*(\d+)/i
-            ]);
-          }
-        }
-        // === BGES dan WMS parsing ===
-        else if (owner === 'BGES' || owner === 'WMS') {
-          // AO/Workorder - ambil SC Number terakhir
-          const aoMatches = text.match(/AO\|.*?(SC\d{6,})/g);
-          if (aoMatches && aoMatches.length > 0) {
-            const lastMatch = aoMatches[aoMatches.length - 1];
-            const scMatch = lastMatch.match(/SC(\d{6,})/);
-            if (scMatch) {
-              ao = `SC${scMatch[1]}`;
-              workorder = ao;
-            }
-          }
-          
-          // Service No - angka 11-12 digit
-          const serviceNoMatches = text.match(/\b\d{11,12}\b/g);
-          if (serviceNoMatches && serviceNoMatches.length > 0) {
-            serviceNo = serviceNoMatches[serviceNoMatches.length - 1];
-          }
-          
-          // Customer Name - setelah tanggal+jam & nomor pelanggan
-          const customerMatches = text.match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/g);
-          if (customerMatches && customerMatches.length > 0) {
-            const nameMatch = customerMatches[0].match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/);
-            if (nameMatch && nameMatch[1]) {
-              customerName = nameMatch[1].trim();
-            }
-          }
-          
-          // Workzone - teks setelah AO|
-          const workzoneMatches = text.match(/AO\|\s+([A-Z]{2,})/g);
-          if (workzoneMatches && workzoneMatches.length > 0) {
-            const lastWorkzoneMatch = workzoneMatches[workzoneMatches.length - 1];
-            const wzMatch = lastWorkzoneMatch.match(/AO\|\s+([A-Z]{2,})/);
-            if (wzMatch && wzMatch[1]) {
-              workzone = wzMatch[1];
-            }
-          }
-          
-          // SN ONT - berbagai brand
-          snOnt = findValue([
-            /SN\s*ONT[:\s]+([A-Z0-9]+)/i,
-            /(ZTEG[A-Z0-9]+)/i,
-            /(HWTC[A-Z0-9]+)/i,
-            /(HUAW[A-Z0-9]+)/i,
-            /(FHTT[A-Z0-9]+)/i,
-            /(FIBR[A-Z0-9]+)/i
-          ]);
-          
-          nikOnt = findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
-          stbId = findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
-          nikStb = findValue([/NIK\s*STB[:\s]+(\d+)/i]);
-        }
-        // === fallback: label/manual/regex ===
-        else {
-          function getValue(label) {
-            const line = lines.find(l => l.toUpperCase().startsWith(label.toUpperCase() + ' :'));
-            return line ? line.split(':').slice(1).join(':').trim() : '';
-          }
-          
-          ao = getValue('AO') || findValue([/AO[:\s]+([A-Z0-9]+)/i]);
-          workorder = getValue('WORKORDER') || findValue([/WORKORDER[:\s]+([A-Z0-9-]+)/i]);
-          serviceNo = getValue('SERVICE NO') || findValue([/SERVICE\s*NO[:\s]+(\d+)/i]);
-          customerName = getValue('CUSTOMER NAME') || findValue([/CUSTOMER\s*NAME[:\s]+(.+)/i]);
-          owner = getValue('OWNER') || findValue([/OWNER[:\s]+([A-Z0-9]+)/i]);
-          workzone = getValue('WORKZONE') || findValue([/WORKZONE[:\s]+([A-Z0-9]+)/i]);
-          snOnt = getValue('SN ONT') || findValue([
-            /SN\s*ONT[:\s]+([A-Z0-9]+)/i,
-            /(ZTEG[A-Z0-9]+)/i,
-            /(HWTC[A-Z0-9]+)/i,
-            /(HUAW[A-Z0-9]+)/i,
-            /(FHTT[A-Z0-9]+)/i,
-            /(FIBR[A-Z0-9]+)/i
-          ]);
-          nikOnt = getValue('NIK ONT') || findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
-          stbId = getValue('STB ID') || findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
-          nikStb = getValue('NIK STB') || findValue([/NIK\s*STB[:\s]+(\d+)/i]);
-        }
-        
-        return { ao, workorder, serviceNo, customerName, owner, workzone, snOnt, nikOnt, stbId, nikStb, teknisi };
-      }
-      
-      const parsed = parseAktivasi(inputText, user);
+      // Use the extracted parser module for parsing multi-format messages
+      const parsed = parseAktivasi(inputText, user, username);
       
       // Validasi minimal AO harus ada
       let missing = [];
@@ -1102,4 +1086,3 @@ console.log('Mode:', USE_WEBHOOK ? 'Webhook' : 'Polling');
 if (USE_WEBHOOK) {
   console.log('Listening on port:', PORT);
 }
-
