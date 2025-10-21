@@ -56,8 +56,9 @@ function parseAktivasi(text, userRow, username) {
     serviceNo = findValue([
       /SERVICE\s*NO\s*:\s*(\d+)/i
     ]);
+    // Capture customer name up to the end of the line to avoid grabbing next labels like WORKZONE
     customerName = findValue([
-      /CUSTOMER\s*NAME\s*:\s*([A-Z0-9\s]+)/i
+      /CUSTOMER\s*NAME\s*:\s*([^\r\n]+)/i
     ]);
     workzone = findValue([
       /WORKZONE\s*:\s*([A-Z0-9]+)/i
