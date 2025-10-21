@@ -74,12 +74,15 @@ function parseAktivasi(text, userRow, username) {
       nikStb = findValue([/NIK\s*STB\s*:\s*(\d+)/i]);
     }
   } else if (owner === 'BGES' || owner === 'WMS') {
+    // BGES/WMS: support many variants from BS/INDIBIZ exports
+    // SC ORDER NO -> AO/WORKORDER (prefix with SC if needed)
     const scOrderMatch = text.match(/SC\s*ORDER\s*NO\s*:\s*([0-9A-Za-z\-]+)/i);
     if (scOrderMatch && scOrderMatch[1]) {
       const val = scOrderMatch[1].trim();
       ao = /^SC/i.test(val) ? val : `SC${val}`;
       workorder = ao;
     } else {
+      // fallback: try to find SCNNNNNN in AO| lines
       const aoMatches = text.match(/AO\|.*?(SC\d{6,})/g);
       if (aoMatches && aoMatches.length > 0) {
         const lastMatch = aoMatches[aoMatches.length - 1];
@@ -90,7 +93,9 @@ function parseAktivasi(text, userRow, username) {
         }
       }
     }
-    const serviceMatch = text.match(/SERVICE\s*NO\s*:\s*(\d+)/i);
+
+    // SERVICE NO: explicit or fallback to long numeric token (11-12 digits)
+    const serviceMatch = text.match(/SERVICE\s*NO\s*:\s*([0-9A-Za-z\-]+)/i);
     if (serviceMatch && serviceMatch[1]) {
       serviceNo = serviceMatch[1].trim();
     } else {
@@ -99,10 +104,17 @@ function parseAktivasi(text, userRow, username) {
         serviceNo = serviceNoMatches[serviceNoMatches.length - 1];
       }
     }
+
+    // NCLI
+    const ncliMatch = text.match(/NCLI\s*:\s*([0-9A-Za-z\-]+)/i);
+    const ncli = ncliMatch && ncliMatch[1] ? ncliMatch[1].trim() : '';
+
+    // CUSTOMER NAME (prefer explicit field)
     const custMatch = text.match(/CUSTOMER\s*NAME\s*:\s*(.+)/i);
     if (custMatch && custMatch[1]) {
       customerName = custMatch[1].trim();
     } else {
+      // sometimes embedded in timestamped logs
       const customerMatches = text.match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/g);
       if (customerMatches && customerMatches.length > 0) {
         const nameMatch = customerMatches[0].match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+\d+\s+([A-Z0-9\s]+?)\s{2,}/);
@@ -111,6 +123,8 @@ function parseAktivasi(text, userRow, username) {
         }
       }
     }
+
+    // WORKZONE and ODP
     const wzMatch = text.match(/WORKZONE\s*:\s*([A-Z0-9\-\/]+)/i);
     if (wzMatch && wzMatch[1]) {
       workzone = wzMatch[1].trim();
@@ -128,17 +142,46 @@ function parseAktivasi(text, userRow, username) {
     if (odpMatch && odpMatch[1] && !workzone) {
       workzone = odpMatch[1].trim();
     }
+
+    // ADDRESS, CONTACT PHONE, PAKET, MITRA (partner)
+    const addressMatch = text.match(/ADDRESS\s*:\s*(.+)/i);
+    const contactMatch = text.match(/CONTACT\s*PHONE\s*:\s*([0-9\+\-\s]+)/i);
+    const paketMatch = text.match(/PAKET\s*:\s*(.+)/i);
+    const mitraMatch = text.match(/MITRA\s*:\s*(.+)/i);
+    const mitra = mitraMatch && mitraMatch[1] ? mitraMatch[1].trim() : '';
+
+    // Prefer MITRA value as owner if present (records partner), otherwise keep detected owner
+    owner = mitra || owner;
+
+    // SN / NIK / STB
     snOnt = findValue([
       /SN\s*ONT[:\s]+([A-Z0-9]+)/i,
       /(ZTEG[A-Z0-9]+)/i,
       /(HWTC[A-Z0-9]+)/i,
       /(HUAW[A-Z0-9]+)/i,
       /(FHTT[A-Z0-9]+)/i,
+      /(FHTTC[A-Z0-9]+)/i,
       /(FIBR[A-Z0-9]+)/i
     ]);
+    // also try a generic SN pattern near 'SN ONT'
+    if (!snOnt) {
+      const snNear = text.match(/SN\s*ONT\s*[:\s]*([A-Z0-9\-]+)/i);
+      if (snNear && snNear[1]) snOnt = snNear[1].trim();
+    }
+
     nikOnt = findValue([/NIK\s*ONT[:\s]+(\d+)/i]);
     stbId = findValue([/STB\s*ID[:\s]+([A-Z0-9]+)/i]);
     nikStb = findValue([/NIK\s*STB[:\s]+(\d+)/i]);
+
+    // If customer name still empty, fallback to first non-empty ADDRESS segment or MITRA
+    if (!customerName) {
+      if (addressMatch && addressMatch[1]) {
+        // Address might contain pipes - take first segment as fallback name attempt
+        const firstSeg = addressMatch[1].split('|')[0].trim();
+        if (firstSeg && firstSeg.match(/[A-Z]/i)) customerName = firstSeg;
+      }
+      if (!customerName && mitra) customerName = mitra;
+    }
   } else {
     function getValue(label) {
       const line = lines.find(l => l.toUpperCase().startsWith(label.toUpperCase() + ' :'));
