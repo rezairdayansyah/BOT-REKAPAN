@@ -27,14 +27,16 @@ function parseAktivasi(text, userRow, username) {
 
   function detectOwner(text) {
     const upperText = text.toUpperCase();
-    // Prioritize BGES indicators first — some BGES messages include 'DATE CREATED' which previously matched TSEL
-    if (upperText.includes('INDIBIZ') || upperText.includes('HSI') || upperText.includes('SC ORDER') || upperText.includes('NCLI') || upperText.includes('MITRA') || upperText.includes('CHANNEL : BS')) {
-      return 'BGES';
+    // Owner parsing based only on CHANNEL tokens per spec:
+    // CHANNEL : BS -> owner 'BS'
+    // CHANNEL : DIGIPOS or CHANNEL : PDA -> owner 'TSEL'
+    if (upperText.includes('CHANNEL : BS') || upperText.includes('CHANNEL: BS')) {
+      return 'BS';
     }
-    // TSEL-specific markers
-    if (upperText.includes('CHANNEL : DIGIPOS') || upperText.includes('WORKORDER : WO')) {
+    if (upperText.includes('CHANNEL : DIGIPOS') || upperText.includes('CHANNEL: DIGIPOS') || upperText.includes('CHANNEL : PDA') || upperText.includes('CHANNEL: PDA')) {
       return 'TSEL';
     }
+    // Keep WMS detection
     if (upperText.includes('WMS') || upperText.includes('MWS')) {
       return 'WMS';
     }
