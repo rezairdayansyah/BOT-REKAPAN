@@ -40,11 +40,15 @@ function parseAktivasi(text, userRow, username) {
     if (upperText.includes('WMS') || upperText.includes('MWS')) {
       return 'WMS';
     }
+    // Fallback: check for BGES in text
+    if (upperText.includes('BGES')) {
+      return 'BGES';
+    }
     return '';
   }
 
   owner = detectOwner(text);
-
+  
   if (owner === 'TSEL') {
     ao = findValue([
       /AO\s*:\s*([A-Za-z0-9]+)/i,
@@ -1137,3 +1141,4 @@ console.log('Mode:', USE_WEBHOOK ? 'Webhook' : 'Polling');
 if (USE_WEBHOOK) {
   console.log('Listening on port:', PORT);
 }
+
